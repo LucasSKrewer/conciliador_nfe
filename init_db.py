@@ -323,16 +323,26 @@ def importar_sistema(conn, caminho):
         ins_nfe = atu_nfe = ins_cte = atu_cte = ignorados = 0
         for linha in reader:
             chave = _chave(col(linha, "Chave"))
-            if not chave:
-                ignorados += 1
-                continue
-            modelo = chave[20:22]   # 55=NFe, 57=CTe
             numero       = _s(col(linha, "Número Nota", "Numero Nota"))
             data_emissao = _data_iso(col(linha, "Data Emissão", "Data Emissao"))
             valor        = _num_br(col(linha, "Valor Contábil", "Valor Contabil",
                                        "Valor Faturado", "Valor Produtos"))
             emitente     = _s(col(linha, "Razão Social", "Razao Social", "Nome Empresa"))
             usuario      = _s(col(linha, "Usuário", "Usuario"))
+
+            if not chave:
+                # NF sem chave eletrônica (NFS-e da prefeitura ou NF antiga em papel).
+                # Gera chave sintética determinística para entrar no banco como
+                # 'em_sistema=1, em_sefaz=0' → status 'NF de Serviço'.
+                cod_emp = _s(col(linha, "Código Empresa", "Codigo Empresa"))
+                if cod_emp and numero:
+                    chave = f"NFS-{re.sub(r'[^A-Za-z0-9]', '', cod_emp)}-{re.sub(r'[^0-9]', '', numero)}"
+                    modelo = "NFS"
+                else:
+                    ignorados += 1
+                    continue
+            else:
+                modelo = chave[20:22]   # 55=NFe, 57=CTe
 
             if modelo == "57":
                 ja_existe = conn.execute(

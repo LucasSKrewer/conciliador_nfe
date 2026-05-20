@@ -99,6 +99,20 @@ STATUS_LABEL = {
     "desconhecido": ("?",              "badge-cinza"),
 }
 
+# WHERE clause que exclui notas/CT-es de fornecedores marcados como ocultos.
+# Match por CNPJ (só dígitos) OU por padrão na razão social (LIKE %padrao%).
+# Use direto numa query: WHERE 1=1 {OCULTO_SQL} AND ...
+OCULTO_SQL = """ AND NOT EXISTS (
+    SELECT 1 FROM fornecedor_oculto fo
+    WHERE
+        (fo.cnpj IS NOT NULL
+         AND cnpj_emitente IS NOT NULL
+         AND replace(replace(replace(cnpj_emitente,'.',''),'/',''),'-','') = fo.cnpj)
+     OR (fo.padrao_nome IS NOT NULL
+         AND emitente IS NOT NULL
+         AND UPPER(emitente) LIKE '%' || UPPER(fo.padrao_nome) || '%')
+)"""
+
 def fmt_data(d):
     if not d:
         return ""
@@ -201,6 +215,7 @@ NAV = """
   <a href="{{ url_for('lista_notas') }}" {% if endpoint=='lista_notas' and request.args.get('status','')=='' %}class="ativo"{% endif %}>Notas</a>
   <a href="{{ url_for('lista_notas', status='nao_lancado') }}" {% if endpoint=='lista_notas' and request.args.get('status')=='nao_lancado' %}class="ativo"{% endif %}>Não lançadas</a>
   <a href="{{ url_for('lista_ctes') }}" {% if endpoint=='lista_ctes' %}class="ativo"{% endif %}>CT-e</a>
+  <a href="{{ url_for('lista_ocultos') }}" {% if endpoint in ('lista_ocultos', 'ocultos_adicionar', 'ocultos_remover') %}class="ativo"{% endif %}>Ocultos</a>
   <a href="{{ url_for('importar') }}" {% if endpoint=='importar' %}class="ativo"{% endif %}>Importar</a>
   <div class="nav-sep"></div>
   <div class="nav-user">Conciliador NF-e</div>
@@ -293,7 +308,7 @@ def dashboard():
             COALESCE(SUM(CASE WHEN {STATUS_SQL}='cartao'      THEN valor END),0) AS val_cartao,
             COALESCE(SUM(CASE WHEN {STATUS_SQL}='nf_servico'  THEN valor END),0) AS val_nf_servico
         FROM nota_consolidada
-        WHERE 1=1{where_extra}
+        WHERE 1=1{where_extra}{OCULTO_SQL}
     """, args, one=True)
 
     totais_cte = query(f"""
@@ -307,7 +322,7 @@ def dashboard():
             COALESCE(SUM(CASE WHEN {STATUS_SQL}='cartao'      THEN valor END),0) AS val_cartao,
             COALESCE(SUM(valor),0) AS val_total
         FROM cte_consolidada
-        WHERE 1=1{where_extra}
+        WHERE 1=1{where_extra}{OCULTO_SQL}
     """, args, one=True)
 
     ultima_imp = query("SELECT * FROM importacao ORDER BY id DESC LIMIT 1", one=True)
@@ -315,7 +330,7 @@ def dashboard():
     nao_lancadas_recentes = query(f"""
         SELECT chave, numero, emitente, cnpj_emitente, valor, data_emissao
         FROM nota_consolidada
-        WHERE {STATUS_SQL}='nao_lancado'{where_extra}
+        WHERE {STATUS_SQL}='nao_lancado'{where_extra}{OCULTO_SQL}
         ORDER BY data_emissao DESC, numero DESC
         LIMIT 15
     """, args)
@@ -358,10 +373,10 @@ def dashboard():
         stat("Total no banco", totais["total"]       or 0, "no período" if mes else "todas as notas", "cinza")
     )
 
+    # CT-e não tem cartão na UI (frete não rola cartão)
     stats_cte_html = (
         stat_cte("CT-e não lançados", totais_cte["nao_lancado"] or 0, fmt_valor(totais_cte["val_nao_lancado"]), "vermelho", "nao_lancado") +
         stat_cte("CT-e lançados",     totais_cte["lancado"]     or 0, fmt_valor(totais_cte["val_lancado"]),     "verde",    "lancado") +
-        stat_cte("CT-e cartão",       totais_cte["cartao"]      or 0, fmt_valor(totais_cte["val_cartao"]),      "laranja",  "cartao") +
         stat_cte("Total CT-e",        totais_cte["total"]       or 0, fmt_valor(totais_cte["val_total"]),       "cinza")
     )
     tem_cte = (totais_cte["total"] or 0) > 0
@@ -463,26 +478,31 @@ def lista_notas():
         where.append("substr(data_emissao,1,7) = ?")
         args.append(mes)
     if busca:
-        where.append("(chave LIKE ? OR numero LIKE ? OR emitente LIKE ? OR observacao LIKE ?)")
-        args += [f"%{busca}%", f"%{busca}%", f"%{busca}%", f"%{busca}%"]
+        # aceita valor em formato BR ('1.796,52') ou PT ('1796.52') na busca
+        if "," in busca:
+            busca_num = busca.replace(".", "").replace(",", ".")  # BR → PT
+        else:
+            busca_num = busca                                      # já PT ou parcial
+        where.append("(chave LIKE ? OR numero LIKE ? OR emitente LIKE ? OR observacao LIKE ? OR CAST(valor AS TEXT) LIKE ?)")
+        args += [f"%{busca}%", f"%{busca}%", f"%{busca}%", f"%{busca}%", f"%{busca_num}%"]
     if cnpj:
         cnpj_dig = "".join(ch for ch in cnpj if ch.isdigit())
         where.append("cnpj_emitente LIKE ?")
         args.append(f"%{cnpj_dig}%")
     ws = " AND ".join(where)
 
-    total = query(f"SELECT COUNT(*) AS n FROM nota_consolidada WHERE {ws}", args, one=True)["n"]
+    total = query(f"SELECT COUNT(*) AS n FROM nota_consolidada WHERE {ws}{OCULTO_SQL}", args, one=True)["n"]
     total_paginas = max(1, (total + POR_PAGINA - 1) // POR_PAGINA)
     pag = min(pag, total_paginas)
 
-    soma_valor = query(f"SELECT COALESCE(SUM(valor),0) AS s FROM nota_consolidada WHERE {ws}", args, one=True)["s"]
+    soma_valor = query(f"SELECT COALESCE(SUM(valor),0) AS s FROM nota_consolidada WHERE {ws}{OCULTO_SQL}", args, one=True)["s"]
 
     rows = query(f"""
         SELECT chave, numero, serie, cnpj_emitente, emitente, valor, data_emissao,
                em_sefaz, em_sistema, marcacao_cartao, observacao, usuario_lancamento,
                {STATUS_SQL} AS status
         FROM nota_consolidada
-        WHERE {ws}
+        WHERE {ws}{OCULTO_SQL}
         ORDER BY data_emissao DESC, numero DESC
         LIMIT ? OFFSET ?
     """, args + [POR_PAGINA, (pag - 1) * POR_PAGINA])
@@ -611,8 +631,8 @@ def lista_notas():
           <select name="mes">{mes_opts}</select>
         </div>
         <div class="form-group" style="flex:1;min-width:220px">
-          <label>Busca (chave, número, emitente ou observação)</label>
-          <input name="q" value="{busca}" placeholder="Ex: 4317, fornecedor ou pago via Pix">
+          <label>Busca (chave, número, emitente, observação ou valor)</label>
+          <input name="q" value="{busca}" placeholder="Ex: 4317, fornecedor, 1796,52 ou pago via Pix">
         </div>
         <div class="form-group" style="min-width:160px">
           <label>CNPJ emitente</label>
@@ -699,15 +719,19 @@ def lista_ctes():
         where.append("substr(data_emissao,1,7) = ?")
         args.append(mes)
     if busca:
-        where.append("(chave LIKE ? OR numero LIKE ? OR emitente LIKE ? OR remetente LIKE ? OR observacao LIKE ?)")
-        args += [f"%{busca}%"] * 5
+        if "," in busca:
+            busca_num = busca.replace(".", "").replace(",", ".")
+        else:
+            busca_num = busca
+        where.append("(chave LIKE ? OR numero LIKE ? OR emitente LIKE ? OR remetente LIKE ? OR observacao LIKE ? OR CAST(valor AS TEXT) LIKE ? OR CAST(valor_carga AS TEXT) LIKE ?)")
+        args += [f"%{busca}%"] * 5 + [f"%{busca_num}%", f"%{busca_num}%"]
     ws = " AND ".join(where)
 
-    total = query(f"SELECT COUNT(*) AS n FROM cte_consolidada WHERE {ws}", args, one=True)["n"]
+    total = query(f"SELECT COUNT(*) AS n FROM cte_consolidada WHERE {ws}{OCULTO_SQL}", args, one=True)["n"]
     total_paginas = max(1, (total + POR_PAGINA - 1) // POR_PAGINA)
     pag = min(pag, total_paginas)
-    soma_valor = query(f"SELECT COALESCE(SUM(valor),0) AS s FROM cte_consolidada WHERE {ws}", args, one=True)["s"]
-    soma_carga = query(f"SELECT COALESCE(SUM(valor_carga),0) AS s FROM cte_consolidada WHERE {ws}", args, one=True)["s"]
+    soma_valor = query(f"SELECT COALESCE(SUM(valor),0) AS s FROM cte_consolidada WHERE {ws}{OCULTO_SQL}", args, one=True)["s"]
+    soma_carga = query(f"SELECT COALESCE(SUM(valor_carga),0) AS s FROM cte_consolidada WHERE {ws}{OCULTO_SQL}", args, one=True)["s"]
 
     rows = query(f"""
         SELECT chave, numero, serie, cnpj_emitente, emitente, emitente_uf,
@@ -716,7 +740,7 @@ def lista_ctes():
                em_sefaz, em_sistema, marcacao_cartao, observacao, usuario_lancamento,
                {STATUS_SQL} AS status
         FROM cte_consolidada
-        WHERE {ws}
+        WHERE {ws}{OCULTO_SQL}
         ORDER BY data_emissao DESC, numero DESC
         LIMIT ? OFFSET ?
     """, args + [POR_PAGINA, (pag - 1) * POR_PAGINA])
@@ -724,11 +748,11 @@ def lista_ctes():
     def opt(val, label, sel):
         s = ' selected' if val == sel else ''
         return f'<option value="{val}"{s}>{label}</option>'
+    # CT-e não tem cenário de cartão (frete não é pago via cartão)
     status_opts = (opt("", "(Todos)", status)
                  + opt("nao_lancado", "Não lançado", status)
                  + opt("lancado", "Lançado", status)
-                 + opt("cartao", "Cartão", status)
-                 + opt("nf_servico", "NF de Serviço", status))
+                 + opt("nf_servico", "Só no Sistema", status))
     mes_opts = '<option value="">(Todos os meses)</option>' + "".join(
         f'<option value="{m}"{" selected" if m==mes else ""}>{fmt_mes(m)}</option>'
         for m in meses_cte
@@ -737,7 +761,6 @@ def lista_ctes():
     linhas = []
     for c in rows:
         label, cls_badge = STATUS_LABEL[c["status"]]
-        cartao_check = "checked" if c["marcacao_cartao"] else ""
         obs = (c["observacao"] or "").replace('"', '&quot;')
         flags = []
         if c["em_sefaz"]:   flags.append('<span class="badge badge-verde" title="Na planilha CT-e da SEFAZ">SEFAZ</span>')
@@ -761,15 +784,10 @@ def lista_ctes():
           <td>{flags_html}</td>
           <td><span class="badge {cls_badge}">{label}</span></td>
           <td>{usuario_html}</td>
-          <td class="acao-cell">
-            <label style="font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px">
-              <input type="checkbox" class="cartao-chk" {cartao_check}> Cartão
-            </label>
-          </td>
           <td><input class="obs-input" data-chave="{c['chave']}" value="{obs}" placeholder="observação"></td>
           <td class="chave" title="{c['chave']}">{c['chave'][:8]}…{c['chave'][-4:]}</td>
         </tr>""")
-    linhas_html = "".join(linhas) or '<tr><td colspan="11" class="empty">Nenhum CT-e com esses filtros.</td></tr>'
+    linhas_html = "".join(linhas) or '<tr><td colspan="10" class="empty">Nenhum CT-e com esses filtros.</td></tr>'
 
     def pag_link(p, txt=None, ativo=False):
         if ativo:
@@ -789,19 +807,6 @@ def lista_ctes():
 
     js = """
     <script>
-    document.querySelectorAll('.cartao-chk').forEach(chk => {
-      chk.addEventListener('change', async (ev) => {
-        const tr = ev.target.closest('tr');
-        const chave = tr.dataset.chave;
-        const marcado = ev.target.checked ? 1 : 0;
-        const r = await fetch('/ctes/' + chave + '/cartao', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({cartao: marcado})
-        });
-        if (!r.ok) { alert('Falha ao salvar marcação.'); ev.target.checked = !ev.target.checked; return; }
-        window.location.reload();
-      });
-    });
     document.querySelectorAll('.obs-input').forEach(inp => {
       let timer = null;
       inp.addEventListener('input', (ev) => {
@@ -844,8 +849,8 @@ def lista_ctes():
           <select name="mes">{mes_opts}</select>
         </div>
         <div class="form-group" style="flex:1;min-width:220px">
-          <label>Busca (chave, número, transportadora, remetente ou observação)</label>
-          <input name="q" value="{busca}" placeholder="Ex: 4317, transportadora ou remetente">
+          <label>Busca (chave, número, transportadora, remetente, observação ou valor)</label>
+          <input name="q" value="{busca}" placeholder="Ex: 4317, transportadora, 1939,08 ou remetente">
         </div>
         <button class="btn btn-primary" type="submit">Filtrar</button>
         <a class="btn btn-cinza" href="{url_for('lista_ctes')}">Limpar</a>
@@ -863,7 +868,6 @@ def lista_ctes():
               <th>Fontes</th>
               <th>Status</th>
               <th>Lançou</th>
-              <th>Cartão?</th>
               <th>Observação</th>
               <th>Chave</th>
             </tr>
@@ -900,6 +904,131 @@ def salvar_observacao_cte(chave):
         return jsonify(ok=False, erro="CT-e não encontrado"), 404
     db.commit()
     return jsonify(ok=True)
+
+
+# ── Fornecedores ocultos ────────────────────────────────────────────────────
+
+@app.route("/ocultos")
+def lista_ocultos():
+    rows = query("""
+        SELECT id, cnpj, padrao_nome, rotulo, criado_em
+        FROM fornecedor_oculto
+        ORDER BY criado_em DESC, id DESC
+    """)
+
+    linhas = []
+    for r in rows:
+        cnpj_dig = "".join(ch for ch in (r["cnpj"] or "") if ch.isdigit())
+        pad = r["padrao_nome"] or ""
+        match_sql = []
+        match_args = []
+        if cnpj_dig:
+            match_sql.append("(cnpj_emitente IS NOT NULL AND replace(replace(replace(cnpj_emitente,'.',''),'/',''),'-','') = ?)")
+            match_args.append(cnpj_dig)
+        if pad:
+            match_sql.append("(emitente IS NOT NULL AND UPPER(emitente) LIKE '%' || UPPER(?) || '%')")
+            match_args.append(pad)
+        where = " OR ".join(match_sql) if match_sql else "1=0"
+        n_nf = query(f"SELECT COUNT(*) AS n, COALESCE(SUM(valor),0) AS s FROM nota_consolidada WHERE {where}", match_args, one=True)
+        n_ct = query(f"SELECT COUNT(*) AS n, COALESCE(SUM(valor),0) AS s FROM cte_consolidada  WHERE {where}", match_args, one=True)
+        criterio = []
+        if r["cnpj"]:        criterio.append(f"CNPJ {r['cnpj']}")
+        if r["padrao_nome"]: criterio.append(f'razão social contém "{r["padrao_nome"]}"')
+        criterio_html = " · ".join(criterio) or '<span style="color:#bbb">sem critério</span>'
+        linhas.append(f"""
+        <tr>
+          <td><b>{r['rotulo'] or '(sem rótulo)'}</b><br><span style="font-size:11px;color:#666">{criterio_html}</span></td>
+          <td class="num">{n_nf['n']}<br><span style="font-size:11px;color:#888">{fmt_valor(n_nf['s'])}</span></td>
+          <td class="num">{n_ct['n']}<br><span style="font-size:11px;color:#888">{fmt_valor(n_ct['s'])}</span></td>
+          <td style="font-size:11px;color:#888">{r['criado_em']}</td>
+          <td>
+            <form method="post" action="{url_for('ocultos_remover', oid=r['id'])}" style="display:inline" onsubmit="return confirm('Remover esta regra?')">
+              <button class="btn btn-sm btn-cinza" type="submit">Remover</button>
+            </form>
+          </td>
+        </tr>""")
+    linhas_html = "".join(linhas) or '<tr><td colspan="5" class="empty">Nenhum fornecedor oculto cadastrado.</td></tr>'
+
+    corpo = f"""
+    <div class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Fornecedores ocultos</h1>
+          <div class="page-sub">Notas e CT-e desses fornecedores ficam invisíveis em todas as telas (dashboard, listas e contagens).</div>
+        </div>
+        <a class="btn btn-secondary" href="{url_for('dashboard')}">← Dashboard</a>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Adicionar novo</div>
+        <form method="post" action="{url_for('ocultos_adicionar')}">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="form-group">
+              <label>Rótulo (descrição amigável)</label>
+              <input name="rotulo" placeholder="Ex: Consultoria mensal" required>
+            </div>
+            <div class="form-group">
+              <label>CNPJ (só dígitos, opcional)</label>
+              <input name="cnpj" placeholder="Ex: 12345678000199">
+            </div>
+            <div class="form-group">
+              <label>Padrão na razão social (LIKE %padrao%, opcional)</label>
+              <input name="padrao_nome" placeholder="Ex: CONSULTORIA EMPRESARIAL">
+            </div>
+          </div>
+          <p style="font-size:12px;color:#888;margin-bottom:10px">
+            Preencha CNPJ <i>ou</i> padrão na razão social (ou ambos). Notas que baterem em qualquer critério ficam ocultas.
+          </p>
+          <button class="btn btn-primary" type="submit">Adicionar</button>
+        </form>
+      </div>
+
+      <div class="card" style="padding:0">
+        <div class="tbl-wrap">
+          <table>
+            <tr>
+              <th>Fornecedor / critério</th>
+              <th class="right">NFe escondidas</th>
+              <th class="right">CT-e escondidos</th>
+              <th>Criado em</th>
+              <th></th>
+            </tr>
+            {linhas_html}
+          </table>
+        </div>
+      </div>
+    </div>"""
+    return render_pagina("Fornecedores ocultos", corpo)
+
+
+@app.route("/ocultos/adicionar", methods=["POST"])
+def ocultos_adicionar():
+    rotulo = (request.form.get("rotulo") or "").strip()
+    cnpj   = "".join(ch for ch in (request.form.get("cnpj") or "") if ch.isdigit()) or None
+    padrao = (request.form.get("padrao_nome") or "").strip() or None
+
+    if not (cnpj or padrao):
+        flash("Informe pelo menos um critério: CNPJ ou padrão na razão social.", "erro")
+        return redirect(url_for("lista_ocultos"))
+
+    db = get_db()
+    db.execute("INSERT INTO fornecedor_oculto (cnpj, padrao_nome, rotulo) VALUES (?, ?, ?)",
+               (cnpj, padrao, rotulo or padrao or cnpj))
+    db.commit()
+    flash(f"Fornecedor '{rotulo or padrao or cnpj}' adicionado aos ocultos.", "ok")
+    return redirect(url_for("lista_ocultos"))
+
+
+@app.route("/ocultos/<int:oid>/remover", methods=["POST"])
+def ocultos_remover(oid):
+    db = get_db()
+    cur = db.execute("DELETE FROM fornecedor_oculto WHERE id=?", (oid,))
+    if cur.rowcount:
+        db.commit()
+        flash("Regra removida.", "ok")
+    else:
+        flash("Regra não encontrada.", "erro")
+    return redirect(url_for("lista_ocultos"))
 
 
 @app.route("/importar", methods=["GET", "POST"])

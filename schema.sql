@@ -72,6 +72,20 @@ CREATE INDEX IF NOT EXISTS idx_cte_cnpj_rem       ON cte_consolidada(cnpj_remete
 CREATE INDEX IF NOT EXISTS idx_cte_data           ON cte_consolidada(data_emissao);
 
 -- ------------------------------------------------------------
+-- FORNECEDOR_OCULTO
+--   Lista de fornecedores a serem escondidos em TODAS as visões
+--   (dashboard, listas, contagens). Match por CNPJ ou por padrão
+--   da razão social (LIKE case-insensitive).
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS fornecedor_oculto (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    cnpj          TEXT,        -- só dígitos; opcional
+    padrao_nome   TEXT,        -- string para LIKE %padrao% em emitente; opcional
+    rotulo        TEXT,        -- nome amigável pra UI
+    criado_em     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- ------------------------------------------------------------
 -- IMPORTACAO
 --   Log de cada execução de importação (auditoria simples).
 -- ------------------------------------------------------------

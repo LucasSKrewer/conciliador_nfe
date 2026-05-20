@@ -87,11 +87,14 @@ python app.py
 ## Funcionalidades
 
 - **Dashboard** com totais por status e por valor, filtrável por mês
-- **Lista de notas** com filtros (status, mês, busca por número/emitente/observação, CNPJ)
+- **Lista de notas** com filtros (status, mês, busca por chave/número/emitente/observação/valor, CNPJ)
 - **Lista de CT-e** com mesmos filtros, mais transportadora e remetente
-- **Marcar como cartão** com 1 clique (persistente entre reimportações)
+- **Marcar como cartão** com 1 clique (persistente entre reimportações) — só NF-e, CT-e não tem
 - **Observação livre** por documento (também persistente)
 - **Coluna "Lançou"** exibindo qual usuário do ERP lançou (se a coluna `Usuário` estiver presente no CSV)
+- **NF-S sem chave eletrônica** (NFS-e da prefeitura) entram via chave sintética `NFS-<cód>-<nº>` e aparecem como "NF de Serviço"
+- **Fornecedores ocultos** (`/ocultos`): cadastre CNPJs ou padrões de razão social pra esconder notas/CT-e desses fornecedores de todas as visões (útil pra serviços recorrentes, intra-grupo, etc.)
+- **Busca por valor** aceita formato BR (`1.796,52`) e PT (`1796.52`), além de parcial (`1796`)
 - **Reimportar** pela tela web, sem precisar parar o servidor (1 a 3 arquivos opcionais)
 
 ## Formato esperado das planilhas

@@ -5,6 +5,33 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.5.0] — 2026-05-20
+
+### Adicionado
+- **NF de Serviço sem chave eletrônica** entra no banco via chave
+  sintética `NFS-<Código Empresa>-<Número da Nota>`. Antes, qualquer
+  linha do CSV sem chave NF-e de 44 dígitos era ignorada, escondendo
+  as NFS-e da prefeitura. Agora elas aparecem como status "NF de Serviço"
+  (em_sefaz=0, em_sistema=1).
+- **Fornecedores ocultos** (`/ocultos`): nova página de gerenciamento e
+  tabela `fornecedor_oculto`. Cadastre uma regra por **CNPJ** (só dígitos)
+  ou por **padrão na razão social** (LIKE case-insensitive) — ou os dois.
+  Notas e CT-e que baterem em qualquer critério ficam invisíveis em
+  **todas** as visões: dashboard (contagens e valores), lista `/notas`,
+  lista `/ctes`, recentes do dashboard. Migration automática cria a
+  tabela em bancos existentes.
+- **Busca por valor** nas listas `/notas` e `/ctes`. Aceita formato
+  brasileiro (`1.796,52`), português (`1796.52`) ou parcial (`1796`).
+  No `/ctes` também procura no campo "Valor da Carga".
+
+### Mudado
+- **CT-e perdeu a opção de "Cartão"** na UI (frete não é pago por
+  cartão). Removida coluna do checkbox da lista `/ctes`, card "CT-e
+  cartão" do dashboard, e opção "Cartão" do filtro de status. Endpoint
+  POST `/ctes/<chave>/cartao` permanece no backend pra compatibilidade.
+- Filtro de status do `/ctes` ganha opção "Só no Sistema" no lugar de
+  "NF de Serviço" (nome mais semântico no contexto de CT-e).
+
 ## [0.4.0] — 2026-05-19
 
 ### Adicionado
