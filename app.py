@@ -570,7 +570,7 @@ def lista_notas():
         </div>
         <div class="form-group" style="flex:1;min-width:220px">
           <label>Busca (chave, número, emitente ou observação)</label>
-          <input name="q" value="{busca}" placeholder="Ex: 4317, ACOVISA ou pago via Pix">
+          <input name="q" value="{busca}" placeholder="Ex: 4317, fornecedor ou pago via Pix">
         </div>
         <div class="form-group" style="min-width:160px">
           <label>CNPJ emitente</label>
