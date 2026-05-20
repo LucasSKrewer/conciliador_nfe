@@ -1,0 +1,30 @@
+# Banco de dados local (gerado pelo init_db.py)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+
+# Planilhas — dados sensíveis da empresa, não comitar
+*.xlsx
+*.xls
+*.xlsb
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Editores / SO
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
