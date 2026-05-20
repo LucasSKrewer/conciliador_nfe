@@ -72,6 +72,35 @@ CREATE INDEX IF NOT EXISTS idx_cte_cnpj_rem       ON cte_consolidada(cnpj_remete
 CREATE INDEX IF NOT EXISTS idx_cte_data           ON cte_consolidada(data_emissao);
 
 -- ------------------------------------------------------------
+-- NFSE_CONSOLIDADA
+--   NF de Serviço Eletrônica (NFS-e) recebidas pela empresa,
+--   vindas da planilha da prefeitura/nacional (NFSe_Recebidas...xlsx).
+--   1 linha por NFS-e (chave DANFSe nacional = 50 dígitos, ou sintética
+--   CNPJ+numero quando não disponível).
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS nfse_consolidada (
+    chave              TEXT    PRIMARY KEY,            -- 50 dígitos DANFSe ou sintética
+    cnpj_emitente      TEXT,                           -- só dígitos
+    emitente           TEXT,                           -- razão social do prestador
+    valor              REAL,
+    competencia        TEXT,                           -- 'MM/AAAA'
+    data_emissao       TEXT,                           -- ISO 'YYYY-MM-DD'
+    situacao           TEXT,                           -- 'NFS-e Gerada', etc.
+    danfse_url         TEXT,
+    em_prefeitura      INTEGER NOT NULL DEFAULT 0,     -- na planilha NFS-e
+    em_sistema         INTEGER NOT NULL DEFAULT 0,     -- bateu com CSV do ERP
+    marcacao_cartao    INTEGER NOT NULL DEFAULT 0,     -- manual
+    observacao         TEXT,                           -- manual
+    usuario_lancamento TEXT,                           -- vindo do CSV no match
+    ultima_importacao  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_nfse_status_pref ON nfse_consolidada(em_prefeitura);
+CREATE INDEX IF NOT EXISTS idx_nfse_status_sis  ON nfse_consolidada(em_sistema);
+CREATE INDEX IF NOT EXISTS idx_nfse_cnpj        ON nfse_consolidada(cnpj_emitente);
+CREATE INDEX IF NOT EXISTS idx_nfse_data        ON nfse_consolidada(data_emissao);
+
+-- ------------------------------------------------------------
 -- FORNECEDOR_OCULTO
 --   Lista de fornecedores a serem escondidos em TODAS as visões
 --   (dashboard, listas, contagens). Match por CNPJ ou por padrão
@@ -93,12 +122,16 @@ CREATE TABLE IF NOT EXISTS importacao (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     arquivo_sefaz       TEXT,
     arquivo_cte         TEXT,
+    arquivo_nfse        TEXT,
     arquivo_sistema     TEXT,
     notas_sefaz         INTEGER NOT NULL DEFAULT 0,
     ctes_sefaz          INTEGER NOT NULL DEFAULT 0,
+    nfses_prefeitura    INTEGER NOT NULL DEFAULT 0,
     notas_sistema       INTEGER NOT NULL DEFAULT 0,
     ctes_sistema        INTEGER NOT NULL DEFAULT 0,
+    nfses_sistema       INTEGER NOT NULL DEFAULT 0,
     notas_total         INTEGER NOT NULL DEFAULT 0,
     ctes_total          INTEGER NOT NULL DEFAULT 0,
+    nfses_total         INTEGER NOT NULL DEFAULT 0,
     executado_em        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );

@@ -1,16 +1,22 @@
 # Conciliador NF-e
 
-Aplicação Flask local que **concilia documentos fiscais eletrônicos** (NF-e e CT-e)
-entre o que foi recebido na SEFAZ e o que foi lançado no sistema interno (ERP):
+Aplicação Flask local que **concilia documentos fiscais eletrônicos** (NF-e,
+CT-e e NFS-e) entre o que foi recebido na SEFAZ/prefeitura e o que foi
+lançado no sistema interno (ERP):
 
 1. **NF-e SEFAZ** — planilha `.xlsx` com as NF-e recebidas pelo CNPJ da empresa
    (formato típico do FSist: `FSist-NFe-Recebidas-<CNPJ>-<data>.xlsx`).
 2. **CT-e SEFAZ** — planilha `.xlsx` com os Conhecimentos de Transporte
    recebidos (formato `FSist-CTe-...-<data>.xlsx`).
-3. **Sistema interno (ERP)** — arquivo `.csv` com NF-e *e* CT-e já lançados
-   (delimitado por `;`, com coluna `Chave` contendo a chave de 44 dígitos). O
-   roteamento é automático: chaves do modelo 55 vão para NF-e, modelo 57 vão
-   para CT-e.
+3. **NFS-e Prefeitura** — planilha `.xlsx` do portal NFS-e nacional/municipal
+   (formato `NFSe_Recebidas_<período>.xlsx`). Chave única DANFSe de 50 dígitos
+   extraída da URL.
+4. **Sistema interno (ERP)** — arquivo `.csv` com NF-e *e* CT-e *e* NF-S já
+   lançados (delimitado por `;`, com coluna `Chave` contendo a chave de 44
+   dígitos quando aplicável). O roteamento é automático:
+   - Modelo 55 → NF-e (`nota_consolidada`)
+   - Modelo 57 → CT-e (`cte_consolidada`)
+   - Sem chave → tenta casar com NFe ou NFS-e existentes; senão cria NFS sintética
 
 Mostra rapidamente:
 
@@ -95,7 +101,9 @@ python app.py
 - **NF-S sem chave eletrônica** (NFS-e da prefeitura) entram via chave sintética `NFS-<cód>-<nº>` e aparecem como "NF de Serviço"
 - **Fornecedores ocultos** (`/ocultos`): cadastre CNPJs ou padrões de razão social pra esconder notas/CT-e desses fornecedores de todas as visões (útil pra serviços recorrentes, intra-grupo, etc.)
 - **Busca por valor** aceita formato BR (`1.796,52`) e PT (`1796.52`), além de parcial (`1796`)
-- **Reimportar** pela tela web, sem precisar parar o servidor (1 a 3 arquivos opcionais)
+- **Notas canceladas** (status "Cancelada" / "NFS-e Cancelada") são puladas
+  automaticamente nos 3 importadores e removidas do banco se já existiam
+- **Reimportar** pela tela web (1 a 4 arquivos opcionais) — sem parar o servidor
 
 ## Formato esperado das planilhas
 

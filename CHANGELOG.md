@@ -5,6 +5,45 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.6.0] — 2026-05-20
+
+### Adicionado
+- **Suporte a NFS-e** (Nota Fiscal de Serviço Eletrônica) da prefeitura:
+  - Nova tabela `nfse_consolidada` com chave DANFSe nacional (50 dígitos)
+    ou sintética por CNPJ+competência+valor.
+  - Importador `importar_nfse()` lê o `.xlsx` do portal NFS-e
+    (`NFSe_Recebidas_*.xlsx`).
+  - Rota `/nfse` com lista, filtros (status, mês, busca em chave/CNPJ/
+    emitente/observação/valor), marcação cartão e observação.
+  - Bloco dedicado no dashboard com 3 cards (não lançadas / lançadas / total).
+  - Card "NFS-e não lançadas" no topo do dashboard ao lado de NFe e CT-e.
+  - Item "NFS-e" no menu superior.
+  - Tela `/importar` aceita agora até **4 arquivos opcionais**.
+  - `init_db.py --nfse <caminho>` no CLI.
+- **Match inteligente NF sem chave**: quando o CSV traz uma linha NF sem
+  chave eletrônica, o importador tenta antes de criar uma NFS sintética:
+  (a) achar NFe existente em `nota_consolidada` por **número + razão**
+  ou **número + valor exato** — cobre o caso de ERP não preencher chave;
+  (b) achar NFSe na planilha da prefeitura por CNPJ ou razão fuzzy.
+- **Consolidação automática** (`consolidar_nfs_com_nfes`) roda após cada
+  importação do CSV e remove NFS sintéticas duplicadas com NFes reais.
+- **Migração de NFS sintéticas** (`migrar_nfs_sinteticas`) move entradas
+  antigas pra `nfse_consolidada` quando bater com a planilha da prefeitura.
+
+### Mudado
+- **Notas canceladas** (status "Cancelada", "NFS-e Cancelada") nos 3
+  importadores agora são puladas e **removidas do banco** se já estavam
+  lá. Mantém o banco enxuto e evita conferência de notas sem efeito fiscal.
+- **Dashboard reorganizado**: blocos detalhados de CT-e e NFS-e ficam
+  ANTES da tabela "Notas não lançadas mais recentes". Tabela reduzida de
+  15 para 8 linhas pra não empurrar o conteúdo pra baixo.
+- Parser de data `_data_iso` agora aceita ano de 2 dígitos (`dd/mm/yy`) —
+  formato comum em exports NFS-e.
+- Parser de "Emitida por" usa separador estrito ` - ` (espaço-traço-espaço)
+  pra não confundir com o sufixo `-XX` do CNPJ.
+- Card "NF de Serviço" removido do topo do dashboard — agora as NFS-e da
+  prefeitura têm seu próprio card "NFS-e não lançadas".
+
 ## [0.5.0] — 2026-05-20
 
 ### Adicionado

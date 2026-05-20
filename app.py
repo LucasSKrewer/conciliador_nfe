@@ -99,6 +99,24 @@ STATUS_LABEL = {
     "desconhecido": ("?",              "badge-cinza"),
 }
 
+STATUS_SQL_NFSE = """
+    CASE
+        WHEN marcacao_cartao=1                       THEN 'cartao'
+        WHEN em_prefeitura=1 AND em_sistema=1        THEN 'lancado'
+        WHEN em_prefeitura=1 AND em_sistema=0        THEN 'nao_lancado'
+        WHEN em_prefeitura=0 AND em_sistema=1        THEN 'so_sistema'
+        ELSE 'desconhecido'
+    END
+"""
+
+STATUS_LABEL_NFSE = {
+    "cartao":       ("Cartão",        "badge-laranja"),
+    "lancado":      ("Lançado",       "badge-verde"),
+    "nao_lancado":  ("Não lançado",   "badge-vermelho"),
+    "so_sistema":   ("Só no Sistema", "badge-cinza"),
+    "desconhecido": ("?",              "badge-cinza"),
+}
+
 # WHERE clause que exclui notas/CT-es de fornecedores marcados como ocultos.
 # Match por CNPJ (só dígitos) OU por padrão na razão social (LIKE %padrao%).
 # Use direto numa query: WHERE 1=1 {OCULTO_SQL} AND ...
@@ -215,6 +233,7 @@ NAV = """
   <a href="{{ url_for('lista_notas') }}" {% if endpoint=='lista_notas' and request.args.get('status','')=='' %}class="ativo"{% endif %}>Notas</a>
   <a href="{{ url_for('lista_notas', status='nao_lancado') }}" {% if endpoint=='lista_notas' and request.args.get('status')=='nao_lancado' %}class="ativo"{% endif %}>Não lançadas</a>
   <a href="{{ url_for('lista_ctes') }}" {% if endpoint=='lista_ctes' %}class="ativo"{% endif %}>CT-e</a>
+  <a href="{{ url_for('lista_nfse') }}" {% if endpoint=='lista_nfse' %}class="ativo"{% endif %}>NFS-e</a>
   <a href="{{ url_for('lista_ocultos') }}" {% if endpoint in ('lista_ocultos', 'ocultos_adicionar', 'ocultos_remover') %}class="ativo"{% endif %}>Ocultos</a>
   <a href="{{ url_for('importar') }}" {% if endpoint=='importar' %}class="ativo"{% endif %}>Importar</a>
   <div class="nav-sep"></div>
@@ -325,6 +344,18 @@ def dashboard():
         WHERE 1=1{where_extra}{OCULTO_SQL}
     """, args, one=True)
 
+    totais_nfse = query(f"""
+        SELECT
+            SUM(CASE WHEN {STATUS_SQL_NFSE}='nao_lancado' THEN 1 ELSE 0 END) AS nao_lancado,
+            SUM(CASE WHEN {STATUS_SQL_NFSE}='lancado'     THEN 1 ELSE 0 END) AS lancado,
+            COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN {STATUS_SQL_NFSE}='nao_lancado' THEN valor END),0) AS val_nao_lancado,
+            COALESCE(SUM(CASE WHEN {STATUS_SQL_NFSE}='lancado'     THEN valor END),0) AS val_lancado,
+            COALESCE(SUM(valor),0) AS val_total
+        FROM nfse_consolidada
+        WHERE 1=1{where_extra}{OCULTO_SQL}
+    """, args, one=True)
+
     ultima_imp = query("SELECT * FROM importacao ORDER BY id DESC LIMIT 1", one=True)
 
     nao_lancadas_recentes = query(f"""
@@ -332,7 +363,7 @@ def dashboard():
         FROM nota_consolidada
         WHERE {STATUS_SQL}='nao_lancado'{where_extra}{OCULTO_SQL}
         ORDER BY data_emissao DESC, numero DESC
-        LIMIT 15
+        LIMIT 8
     """, args)
 
     def stat(label, valor, sub, classe, status_filtro=None):
@@ -364,12 +395,26 @@ def dashboard():
           <div class="stat-sub">{sub}</div>
         </a>"""
 
+    def stat_nfse(label, valor, sub, classe, status_filtro=None):
+        if status_filtro:
+            params = {"status": status_filtro}
+            if mes: params["mes"] = mes
+            href = url_for("lista_nfse", **params)
+        else:
+            href = url_for("lista_nfse", **({"mes": mes} if mes else {}))
+        return f"""
+        <a class="stat {classe}" href="{href}">
+          <div class="stat-label">{label}</div>
+          <div class="stat-val">{valor}</div>
+          <div class="stat-sub">{sub}</div>
+        </a>"""
+
     stats_html = (
         stat("Notas não lançadas", totais["nao_lancado"] or 0, fmt_valor(totais["val_nao_lancado"]), "vermelho", "nao_lancado") +
         stat_cte("CT-e não lançados", totais_cte["nao_lancado"] or 0, fmt_valor(totais_cte["val_nao_lancado"]), "vermelho", "nao_lancado") +
+        stat_nfse("NFS-e não lançadas", totais_nfse["nao_lancado"] or 0, fmt_valor(totais_nfse["val_nao_lancado"]), "vermelho", "nao_lancado") +
         stat("Notas lançadas", totais["lancado"]     or 0, fmt_valor(totais["val_lancado"]),     "verde",    "lancado") +
         stat("Cartão",         totais["cartao"]      or 0, fmt_valor(totais["val_cartao"]),      "laranja",  "cartao") +
-        stat("NF de Serviço",  totais["nf_servico"]  or 0, fmt_valor(totais["val_nf_servico"]),  "azul",     "nf_servico") +
         stat("Total no banco", totais["total"]       or 0, "no período" if mes else "todas as notas", "cinza")
     )
 
@@ -380,6 +425,13 @@ def dashboard():
         stat_cte("Total CT-e",        totais_cte["total"]       or 0, fmt_valor(totais_cte["val_total"]),       "cinza")
     )
     tem_cte = (totais_cte["total"] or 0) > 0
+
+    stats_nfse_html = (
+        stat_nfse("NFS-e não lançadas", totais_nfse["nao_lancado"] or 0, fmt_valor(totais_nfse["val_nao_lancado"]), "vermelho", "nao_lancado") +
+        stat_nfse("NFS-e lançadas",     totais_nfse["lancado"]     or 0, fmt_valor(totais_nfse["val_lancado"]),     "verde",    "lancado") +
+        stat_nfse("Total NFS-e",        totais_nfse["total"]       or 0, fmt_valor(totais_nfse["val_total"]),       "cinza")
+    )
+    tem_nfse = (totais_nfse["total"] or 0) > 0
 
     rows = []
     for n in nao_lancadas_recentes:
@@ -438,6 +490,8 @@ def dashboard():
       </form>
 
       <div class="stats">{stats_html}</div>
+      {'<div style="margin-top:30px;padding-top:18px;border-top:1px solid #d6e2d6"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h2 style="font-size:16px;color:#1B5E20;font-weight:600">Conhecimentos de Transporte (CT-e)' + periodo_titulo + '</h2><a class="btn btn-secondary btn-sm" href="' + url_for('lista_ctes', **({'mes':mes} if mes else {})) + '">Ver todos os CT-e</a></div><div class="stats">' + stats_cte_html + '</div></div>' if tem_cte else ''}
+      {'<div style="margin-top:30px;padding-top:18px;border-top:1px solid #d6e2d6"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h2 style="font-size:16px;color:#1B5E20;font-weight:600">Notas de Serviço (NFS-e)' + periodo_titulo + '</h2><a class="btn btn-secondary btn-sm" href="' + url_for('lista_nfse', **({'mes':mes} if mes else {})) + '">Ver todas as NFS-e</a></div><div class="stats">' + stats_nfse_html + '</div></div>' if tem_nfse else ''}
       <div class="card">
         <div class="card-title">Notas não lançadas mais recentes{periodo_titulo}</div>
         <div class="tbl-wrap">
@@ -450,7 +504,6 @@ def dashboard():
           <a class="btn btn-primary" href="{url_ver_todas}">Ver todas as não lançadas{periodo_titulo}</a>
         </div>
       </div>
-      {'<div style="margin-top:30px;padding-top:18px;border-top:1px solid #d6e2d6"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h2 style="font-size:16px;color:#1B5E20;font-weight:600">Conhecimentos de Transporte (CT-e)' + periodo_titulo + '</h2><a class="btn btn-secondary btn-sm" href="' + url_for('lista_ctes', **({'mes':mes} if mes else {})) + '">Ver todos os CT-e</a></div><div class="stats">' + stats_cte_html + '</div></div>' if tem_cte else ''}
     </div>"""
     return render_pagina("Dashboard", corpo)
 
@@ -906,6 +959,237 @@ def salvar_observacao_cte(chave):
     return jsonify(ok=True)
 
 
+# ── NFS-e ───────────────────────────────────────────────────────────────────
+
+@app.route("/nfse")
+def lista_nfse():
+    status = request.args.get("status", "").strip()
+    busca  = request.args.get("q", "").strip()
+    mes    = request.args.get("mes", "").strip()
+    pag    = max(1, int(request.args.get("pag", "1") or "1"))
+
+    meses_nfse = [r["ym"] for r in query("""
+        SELECT DISTINCT substr(data_emissao,1,7) AS ym
+        FROM nfse_consolidada
+        WHERE data_emissao IS NOT NULL AND length(data_emissao) >= 7
+        ORDER BY ym DESC
+    """)]
+    if mes and mes not in meses_nfse:
+        mes = ""
+
+    where = ["1=1"]
+    args  = []
+    if status in STATUS_LABEL_NFSE:
+        where.append(f"{STATUS_SQL_NFSE} = ?")
+        args.append(status)
+    if mes:
+        where.append("substr(data_emissao,1,7) = ?")
+        args.append(mes)
+    if busca:
+        if "," in busca:
+            busca_num = busca.replace(".", "").replace(",", ".")
+        else:
+            busca_num = busca
+        where.append("(chave LIKE ? OR cnpj_emitente LIKE ? OR emitente LIKE ? OR observacao LIKE ? OR CAST(valor AS TEXT) LIKE ?)")
+        args += [f"%{busca}%", f"%{busca}%", f"%{busca}%", f"%{busca}%", f"%{busca_num}%"]
+    ws = " AND ".join(where)
+
+    total = query(f"SELECT COUNT(*) AS n FROM nfse_consolidada WHERE {ws}{OCULTO_SQL}", args, one=True)["n"]
+    total_paginas = max(1, (total + POR_PAGINA - 1) // POR_PAGINA)
+    pag = min(pag, total_paginas)
+    soma_valor = query(f"SELECT COALESCE(SUM(valor),0) AS s FROM nfse_consolidada WHERE {ws}{OCULTO_SQL}", args, one=True)["s"]
+
+    rows = query(f"""
+        SELECT chave, cnpj_emitente, emitente, valor, competencia, data_emissao,
+               situacao, danfse_url,
+               em_prefeitura, em_sistema, marcacao_cartao, observacao, usuario_lancamento,
+               {STATUS_SQL_NFSE} AS status
+        FROM nfse_consolidada
+        WHERE {ws}{OCULTO_SQL}
+        ORDER BY data_emissao DESC, valor DESC
+        LIMIT ? OFFSET ?
+    """, args + [POR_PAGINA, (pag - 1) * POR_PAGINA])
+
+    def opt(val, label, sel):
+        s = ' selected' if val == sel else ''
+        return f'<option value="{val}"{s}>{label}</option>'
+    status_opts = (opt("", "(Todos)", status)
+                 + opt("nao_lancado", "Não lançado", status)
+                 + opt("lancado", "Lançado", status)
+                 + opt("cartao", "Cartão", status)
+                 + opt("so_sistema", "Só no Sistema", status))
+    mes_opts = '<option value="">(Todos os meses)</option>' + "".join(
+        f'<option value="{m}"{" selected" if m==mes else ""}>{fmt_mes(m)}</option>'
+        for m in meses_nfse
+    )
+
+    linhas = []
+    for n in rows:
+        label, cls_badge = STATUS_LABEL_NFSE[n["status"]]
+        cartao_check = "checked" if n["marcacao_cartao"] else ""
+        obs = (n["observacao"] or "").replace('"', '&quot;')
+        flags = []
+        if n["em_prefeitura"]: flags.append('<span class="badge badge-verde" title="Na planilha da prefeitura">Prefeitura</span>')
+        if n["em_sistema"]:    flags.append('<span class="badge badge-verde" title="Lançada no sistema">Sistema</span>')
+        flags_html = " ".join(flags) or '<span class="badge badge-cinza">—</span>'
+        usuario = n["usuario_lancamento"] or ""
+        usuario_html = f'<span style="font-size:12px;color:#1B5E20">{usuario}</span>' if usuario else '<span style="color:#bbb">—</span>'
+        chave_curta = n["chave"][:8] + "…" + n["chave"][-4:] if len(n["chave"]) > 12 else n["chave"]
+        danfse_link = ""
+        if n["danfse_url"]:
+            danfse_link = f'<a href="{n["danfse_url"]}" target="_blank" style="font-size:10px;color:#666;text-decoration:underline">PDF</a>'
+        linhas.append(f"""
+        <tr data-chave="{n['chave']}">
+          <td>{fmt_data(n['data_emissao'])}</td>
+          <td class="mono" style="font-size:11px">{n['competencia'] or ''}</td>
+          <td>
+            {n['emitente'] or ''}<br>
+            <span class="mono" style="color:#888">{fmt_cnpj(n['cnpj_emitente'])}</span>
+          </td>
+          <td class="num">{fmt_valor(n['valor'])}</td>
+          <td>{flags_html}</td>
+          <td><span class="badge {cls_badge}">{label}</span></td>
+          <td>{usuario_html}</td>
+          <td class="acao-cell">
+            <label style="font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px">
+              <input type="checkbox" class="cartao-chk" {cartao_check}> Cartão
+            </label>
+          </td>
+          <td><input class="obs-input" data-chave="{n['chave']}" value="{obs}" placeholder="observação"></td>
+          <td class="chave" title="{n['chave']}">{chave_curta} {danfse_link}</td>
+        </tr>""")
+    linhas_html = "".join(linhas) or '<tr><td colspan="10" class="empty">Nenhuma NFS-e com esses filtros.</td></tr>'
+
+    def pag_link(p, txt=None, ativo=False):
+        if ativo:
+            return f'<span class="ativo">{txt or p}</span>'
+        argsd = dict(request.args)
+        argsd["pag"] = p
+        return f'<a href="{url_for("lista_nfse", **argsd)}">{txt or p}</a>'
+    pags = []
+    if pag > 1:
+        pags.append(pag_link(pag - 1, "‹ anterior"))
+    janela = range(max(1, pag - 3), min(total_paginas, pag + 3) + 1)
+    for p in janela:
+        pags.append(pag_link(p, ativo=(p == pag)))
+    if pag < total_paginas:
+        pags.append(pag_link(pag + 1, "próxima ›"))
+    pag_html = "".join(pags)
+
+    js = """
+    <script>
+    document.querySelectorAll('.cartao-chk').forEach(chk => {
+      chk.addEventListener('change', async (ev) => {
+        const tr = ev.target.closest('tr');
+        const chave = tr.dataset.chave;
+        const marcado = ev.target.checked ? 1 : 0;
+        const r = await fetch('/nfse/' + encodeURIComponent(chave) + '/cartao', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({cartao: marcado})
+        });
+        if (!r.ok) { alert('Falha ao salvar marcação.'); ev.target.checked = !ev.target.checked; return; }
+        window.location.reload();
+      });
+    });
+    document.querySelectorAll('.obs-input').forEach(inp => {
+      let timer = null;
+      inp.addEventListener('input', (ev) => {
+        clearTimeout(timer);
+        const chave = ev.target.dataset.chave;
+        const val = ev.target.value;
+        timer = setTimeout(async () => {
+          const r = await fetch('/nfse/' + encodeURIComponent(chave) + '/observacao', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({observacao: val})
+          });
+          if (r.ok) { ev.target.style.borderColor = '#2E7D32'; setTimeout(()=>{ev.target.style.borderColor='';}, 600); }
+        }, 600);
+      });
+    });
+    </script>"""
+
+    titulo_status = STATUS_LABEL_NFSE.get(status, ("Todas as NFS-e", ""))[0] if status else "Todas as NFS-e"
+    titulo_mes = f" — {fmt_mes(mes)}" if mes else ""
+
+    corpo = f"""
+    <div class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">{titulo_status}{titulo_mes}</h1>
+          <div class="page-sub">{total} NFS-e — total {fmt_valor(soma_valor)}</div>
+        </div>
+        <div>
+          <a class="btn btn-secondary" href="{url_for('dashboard')}">← Dashboard</a>
+        </div>
+      </div>
+
+      <form class="filtros" method="get">
+        <div class="form-group" style="min-width:160px">
+          <label>Status</label>
+          <select name="status">{status_opts}</select>
+        </div>
+        <div class="form-group" style="min-width:180px">
+          <label>Mês de emissão</label>
+          <select name="mes">{mes_opts}</select>
+        </div>
+        <div class="form-group" style="flex:1;min-width:220px">
+          <label>Busca (chave, CNPJ, emitente, observação ou valor)</label>
+          <input name="q" value="{busca}" placeholder="Ex: prestador, 640,00 ou pago via Pix">
+        </div>
+        <button class="btn btn-primary" type="submit">Filtrar</button>
+        <a class="btn btn-cinza" href="{url_for('lista_nfse')}">Limpar</a>
+      </form>
+
+      <div class="card" style="padding:0">
+        <div class="tbl-wrap">
+          <table>
+            <tr>
+              <th>Emissão</th>
+              <th>Compet.</th>
+              <th>Prestador</th>
+              <th class="right">Valor</th>
+              <th>Fontes</th>
+              <th>Status</th>
+              <th>Lançou</th>
+              <th>Cartão?</th>
+              <th>Observação</th>
+              <th>Chave</th>
+            </tr>
+            {linhas_html}
+          </table>
+        </div>
+      </div>
+      <div class="paginacao">{pag_html}</div>
+    </div>
+    {js}"""
+    return render_pagina(titulo_status, corpo)
+
+
+@app.route("/nfse/<path:chave>/cartao", methods=["POST"])
+def marcar_cartao_nfse(chave):
+    data = request.get_json(silent=True) or {}
+    marcado = 1 if data.get("cartao") else 0
+    db = get_db()
+    cur = db.execute("UPDATE nfse_consolidada SET marcacao_cartao=? WHERE chave=?", (marcado, chave))
+    if cur.rowcount == 0:
+        return jsonify(ok=False, erro="NFS-e não encontrada"), 404
+    db.commit()
+    return jsonify(ok=True, cartao=bool(marcado))
+
+
+@app.route("/nfse/<path:chave>/observacao", methods=["POST"])
+def salvar_observacao_nfse(chave):
+    data = request.get_json(silent=True) or {}
+    obs = (data.get("observacao") or "").strip()
+    db = get_db()
+    cur = db.execute("UPDATE nfse_consolidada SET observacao=? WHERE chave=?",
+                     (obs if obs else None, chave))
+    if cur.rowcount == 0:
+        return jsonify(ok=False, erro="NFS-e não encontrada"), 404
+    db.commit()
+    return jsonify(ok=True)
+
+
 # ── Fornecedores ocultos ────────────────────────────────────────────────────
 
 @app.route("/ocultos")
@@ -1036,21 +1320,25 @@ def importar():
     if request.method == "POST":
         arq_sefaz = request.files.get("sefaz")
         arq_cte   = request.files.get("cte")
+        arq_nfse  = request.files.get("nfse")
         arq_sis   = request.files.get("sistema")
 
-        tem_alguma = any(a and a.filename for a in (arq_sefaz, arq_cte, arq_sis))
+        tem_alguma = any(a and a.filename for a in (arq_sefaz, arq_cte, arq_nfse, arq_sis))
         if not tem_alguma:
-            flash("Selecione pelo menos um arquivo (NFe SEFAZ, CT-e SEFAZ ou CSV do sistema).", "erro")
+            flash("Selecione pelo menos um arquivo.", "erro")
             return redirect(url_for("importar"))
 
         tmp_dir = tempfile.mkdtemp(prefix="conciliador_")
-        path_sefaz = path_cte = path_sis = None
+        path_sefaz = path_cte = path_nfse = path_sis = None
         if arq_sefaz and arq_sefaz.filename:
             path_sefaz = os.path.join(tmp_dir, os.path.basename(arq_sefaz.filename))
             arq_sefaz.save(path_sefaz)
         if arq_cte and arq_cte.filename:
             path_cte = os.path.join(tmp_dir, os.path.basename(arq_cte.filename))
             arq_cte.save(path_cte)
+        if arq_nfse and arq_nfse.filename:
+            path_nfse = os.path.join(tmp_dir, os.path.basename(arq_nfse.filename))
+            arq_nfse.save(path_nfse)
         if arq_sis and arq_sis.filename:
             path_sis = os.path.join(tmp_dir, os.path.basename(arq_sis.filename))
             arq_sis.save(path_sis)
@@ -1059,17 +1347,20 @@ def importar():
 
         try:
             resumo = importador.executar_importacao(path_sefaz, path_sis,
-                                                    db_path=DB_PATH, caminho_cte=path_cte)
+                                                    db_path=DB_PATH,
+                                                    caminho_cte=path_cte,
+                                                    caminho_nfse=path_nfse)
         except Exception as e:
             log.error(f"Erro na importação: {e}\n{traceback.format_exc()}")
             flash(f"Erro na importação: {e}", "erro")
             return redirect(url_for("importar"))
 
         flash(
-            f"Importação ok — NFe: {resumo['totais']['nfe']['total']} no banco "
-            f"({resumo['totais']['nfe']['em_sefaz']} SEFAZ, {resumo['totais']['nfe']['em_sistema']} Sistema); "
-            f"CTe: {resumo['totais']['cte']['total']} no banco "
-            f"({resumo['totais']['cte']['em_sefaz']} SEFAZ, {resumo['totais']['cte']['em_sistema']} Sistema).",
+            f"Importação ok — NFe: {resumo['totais']['nfe']['total']} no banco; "
+            f"CTe: {resumo['totais']['cte']['total']}; "
+            f"NFSe: {resumo['totais']['nfse']['total']} "
+            f"({resumo['totais']['nfse']['em_prefeitura']} prefeitura, "
+            f"{resumo['totais']['nfse']['em_sistema']} no sistema).",
             "ok"
         )
         return redirect(url_for("dashboard"))
@@ -1116,6 +1407,10 @@ def importar():
           <div class="form-group" style="margin-bottom:14px">
             <label>Planilha CT-e SEFAZ (.xlsx — FSist-CTe-...)</label>
             <input type="file" name="cte" accept=".xlsx">
+          </div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label>Planilha NFS-e Prefeitura (.xlsx — NFSe_Recebidas_...)</label>
+            <input type="file" name="nfse" accept=".xlsx">
           </div>
           <div class="form-group" style="margin-bottom:14px">
             <label>CSV do sistema interno / ERP (.csv)</label>
