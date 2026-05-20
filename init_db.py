@@ -105,7 +105,14 @@ def _num_br(v):
 def criar_banco(conn):
     with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
         conn.executescript(f.read())
+    _aplicar_migrations(conn)
     conn.commit()
+
+def _aplicar_migrations(conn):
+    """Migrations idempotentes para bancos criados antes de novas colunas."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(nota_consolidada)")}
+    if "usuario_lancamento" not in cols:
+        conn.execute("ALTER TABLE nota_consolidada ADD COLUMN usuario_lancamento TEXT")
 
 # ── importadores ─────────────────────────────────────────────────────────────
 
@@ -223,6 +230,7 @@ def importar_sistema(conn, caminho):
             valor        = _num_br(col(linha, "Valor Contábil", "Valor Contabil",
                                        "Valor Faturado", "Valor Produtos"))
             emitente     = _s(col(linha, "Razão Social", "Razao Social", "Nome Empresa"))
+            usuario      = _s(col(linha, "Usuário", "Usuario"))
 
             ja_existe = conn.execute(
                 "SELECT 1 FROM nota_consolidada WHERE chave=?", (chave,)
@@ -231,16 +239,17 @@ def importar_sistema(conn, caminho):
             conn.execute("""
                 INSERT INTO nota_consolidada
                     (chave, numero, emitente, valor, data_emissao,
-                     em_sistema, ultima_importacao)
-                VALUES (?, ?, ?, ?, ?, 1, datetime('now','localtime'))
+                     em_sistema, usuario_lancamento, ultima_importacao)
+                VALUES (?, ?, ?, ?, ?, 1, ?, datetime('now','localtime'))
                 ON CONFLICT(chave) DO UPDATE SET
-                    numero         = COALESCE(nota_consolidada.numero, excluded.numero),
-                    emitente       = COALESCE(nota_consolidada.emitente, excluded.emitente),
-                    valor          = COALESCE(nota_consolidada.valor, excluded.valor),
-                    data_emissao   = COALESCE(nota_consolidada.data_emissao, excluded.data_emissao),
-                    em_sistema     = 1,
-                    ultima_importacao = datetime('now','localtime')
-            """, (chave, numero, emitente, valor, data_emissao))
+                    numero             = COALESCE(nota_consolidada.numero, excluded.numero),
+                    emitente           = COALESCE(nota_consolidada.emitente, excluded.emitente),
+                    valor              = COALESCE(nota_consolidada.valor, excluded.valor),
+                    data_emissao       = COALESCE(nota_consolidada.data_emissao, excluded.data_emissao),
+                    em_sistema         = 1,
+                    usuario_lancamento = COALESCE(excluded.usuario_lancamento, nota_consolidada.usuario_lancamento),
+                    ultima_importacao  = datetime('now','localtime')
+            """, (chave, numero, emitente, valor, data_emissao, usuario))
 
             if ja_existe:
                 atualizados += 1

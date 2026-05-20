@@ -86,6 +86,7 @@ python app.py
 - **Lista de notas** com filtros (status, mês, busca por número/emitente/observação, CNPJ)
 - **Marcar como cartão** com 1 clique (persistente entre reimportações)
 - **Observação livre** por nota (também persistente)
+- **Coluna "Lançou"** exibindo qual usuário do ERP lançou a nota (se a coluna `Usuário` estiver presente no CSV)
 - **Reimportar** pela tela web, sem precisar parar o servidor
 
 ## Formato esperado das planilhas
@@ -117,6 +118,7 @@ estas colunas:
 | Data Emissão   | Data de emissão         |
 | Valor Contábil | Valor total (ou `Valor Faturado` / `Valor Produtos` como fallback) |
 | Razão Social   | Razão social do fornecedor |
+| Usuário        | Quem lançou a nota no ERP (opcional — aparece na coluna "Lançou" na tela) |
 
 Valores em formato brasileiro (`1.234,56`) são aceitos.
 

@@ -5,6 +5,19 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.2.0] — 2026-05-19
+
+### Adicionado
+- Coluna **"Lançou"** na lista de notas, mostrando o usuário do ERP que
+  fez o lançamento (lido da coluna `Usuário` / `Usuario` do CSV).
+- Migration automática (`_aplicar_migrations` em `init_db.py`) que adiciona
+  a nova coluna em bancos criados antes desta versão, sem perder dados.
+
+### Corrigido
+- Destaque do menu superior agora distingue **"Notas"** (lista completa,
+  sem filtro de status) de **"Não lançadas"** (apenas `status=nao_lancado`).
+  Antes os dois links ficavam realçados ao mesmo tempo na rota `/notas`.
+
 ## [0.1.0] — 2026-05-19
 
 ### Adicionado

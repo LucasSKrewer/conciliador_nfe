@@ -198,8 +198,8 @@ NAV = """
 <nav class="nav">
   <a href="{{ url_for('dashboard') }}" class="nav-brand"><img src="{{ url_for('static', filename='LOGO.svg') }}" alt="Conciliador NF-e"></a>
   <a href="{{ url_for('dashboard') }}" {% if endpoint=='dashboard' %}class="ativo"{% endif %}>Dashboard</a>
-  <a href="{{ url_for('lista_notas') }}" {% if endpoint=='lista_notas' %}class="ativo"{% endif %}>Notas</a>
-  <a href="{{ url_for('lista_notas', status='nao_lancado') }}">Não lançadas</a>
+  <a href="{{ url_for('lista_notas') }}" {% if endpoint=='lista_notas' and request.args.get('status','')=='' %}class="ativo"{% endif %}>Notas</a>
+  <a href="{{ url_for('lista_notas', status='nao_lancado') }}" {% if endpoint=='lista_notas' and request.args.get('status')=='nao_lancado' %}class="ativo"{% endif %}>Não lançadas</a>
   <a href="{{ url_for('importar') }}" {% if endpoint=='importar' %}class="ativo"{% endif %}>Importar</a>
   <div class="nav-sep"></div>
   <div class="nav-user">Conciliador NF-e</div>
@@ -440,7 +440,7 @@ def lista_notas():
 
     rows = query(f"""
         SELECT chave, numero, serie, cnpj_emitente, emitente, valor, data_emissao,
-               em_sefaz, em_sistema, marcacao_cartao, observacao,
+               em_sefaz, em_sistema, marcacao_cartao, observacao, usuario_lancamento,
                {STATUS_SQL} AS status
         FROM nota_consolidada
         WHERE {ws}
@@ -473,6 +473,8 @@ def lista_notas():
         if n["em_sefaz"]:   flags.append('<span class="badge badge-verde" title="Na planilha da SEFAZ">SEFAZ</span>')
         if n["em_sistema"]: flags.append('<span class="badge badge-verde" title="Lançada no sistema interno">Sistema</span>')
         flags_html = " ".join(flags) or '<span class="badge badge-cinza">—</span>'
+        usuario = n["usuario_lancamento"] or ""
+        usuario_html = f'<span style="font-size:12px;color:#1B5E20">{usuario}</span>' if usuario else '<span style="color:#bbb">—</span>'
         linhas.append(f"""
         <tr data-chave="{n['chave']}">
           <td>{fmt_data(n['data_emissao'])}</td>
@@ -484,6 +486,7 @@ def lista_notas():
           <td class="num">{fmt_valor(n['valor'])}</td>
           <td>{flags_html}</td>
           <td><span class="badge {cls_badge}">{label}</span></td>
+          <td>{usuario_html}</td>
           <td class="acao-cell">
             <label style="font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px">
               <input type="checkbox" class="cartao-chk" {cartao_check}> Cartão
@@ -492,7 +495,7 @@ def lista_notas():
           <td><input class="obs-input" data-chave="{n['chave']}" value="{obs}" placeholder="observação"></td>
           <td class="chave" title="{n['chave']}">{n['chave'][:8]}…{n['chave'][-4:]}</td>
         </tr>""")
-    linhas_html = "".join(linhas) or '<tr><td colspan="9" class="empty">Nenhuma nota com esses filtros.</td></tr>'
+    linhas_html = "".join(linhas) or '<tr><td colspan="10" class="empty">Nenhuma nota com esses filtros.</td></tr>'
 
     # paginação
     def pag_link(p, txt=None, ativo=False):
@@ -590,6 +593,7 @@ def lista_notas():
               <th class="right">Valor</th>
               <th>Fontes</th>
               <th>Status</th>
+              <th>Lançou</th>
               <th>Cartão?</th>
               <th>Observação</th>
               <th>Chave</th>

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS nota_consolidada (
     em_sistema         INTEGER NOT NULL DEFAULT 0,     -- 0/1
     marcacao_cartao    INTEGER NOT NULL DEFAULT 0,     -- 0/1, manual
     observacao         TEXT,                           -- manual
+    usuario_lancamento TEXT,                           -- nome do usuário que lançou no ERP
     ultima_importacao  TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
