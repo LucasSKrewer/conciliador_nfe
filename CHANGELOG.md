@@ -5,6 +5,18 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.3.0] — 2026-05-19
+
+### Mudado
+- **Importação agora é acumulativa.** Antes, `executar_importacao()`
+  zerava `em_sefaz`/`em_sistema` de todas as notas antes de importar —
+  ou seja, importar uma planilha de outro mês fazia as notas do mês
+  anterior caírem para o status `desconhecido`. Agora as flags são só
+  *somadas* a cada importação, permitindo importar mês a mês sem perder
+  o estado dos anteriores. Notas marcadas como cartão e observações já
+  eram preservadas; com essa mudança, o status visual também passa a
+  ser estável entre importações de períodos diferentes.
+
 ## [0.2.0] — 2026-05-19
 
 ### Adicionado

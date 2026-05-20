@@ -262,14 +262,17 @@ def importar_sistema(conn, caminho):
 # ── orquestração ─────────────────────────────────────────────────────────────
 
 def executar_importacao(caminho_sefaz, caminho_sistema, db_path=DB_PATH):
-    """Reseta flags, importa as 2 fontes e registra a execução."""
+    """Importa as 2 fontes e registra a execução.
+
+    Comportamento ACUMULATIVO: importar uma planilha NÃO zera as flags
+    em_sefaz/em_sistema das notas que vieram em importações anteriores.
+    Assim você pode importar mês a mês (Abril, depois Maio, depois Junho)
+    e o banco acumula tudo. Uma nota que saiu de uma planilha posterior
+    permanece com a flag que ganhou na importação anterior.
+    """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     criar_banco(conn)
-
-    # zera flags antes (notas removidas das planilhas ficam com em_sefaz/em_sistema=0,
-    # mas mantêm marcacao_cartao e observacao)
-    conn.execute("UPDATE nota_consolidada SET em_sefaz=0, em_sistema=0")
 
     r_sefaz = {"inseridos": 0, "atualizados": 0, "ignorados": 0}
     r_sis   = {"inseridos": 0, "atualizados": 0, "ignorados": 0}
