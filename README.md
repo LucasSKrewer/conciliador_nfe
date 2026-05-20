@@ -1,19 +1,23 @@
 # Conciliador NF-e
 
-Aplicação Flask local que **concilia notas fiscais eletrônicas** entre duas fontes:
+Aplicação Flask local que **concilia documentos fiscais eletrônicos** (NF-e e CT-e)
+entre o que foi recebido na SEFAZ e o que foi lançado no sistema interno (ERP):
 
-1. **SEFAZ** — planilha `.xlsx` com as NF-e recebidas pelo CNPJ da empresa
+1. **NF-e SEFAZ** — planilha `.xlsx` com as NF-e recebidas pelo CNPJ da empresa
    (formato típico do FSist: `FSist-NFe-Recebidas-<CNPJ>-<data>.xlsx`).
-2. **Sistema interno (ERP)** — arquivo `.csv` com as notas que **já foram lançadas**
-   no seu sistema (delimitado por `;`, com uma coluna `Chave` contendo a chave NF-e
-   de 44 dígitos).
+2. **CT-e SEFAZ** — planilha `.xlsx` com os Conhecimentos de Transporte
+   recebidos (formato `FSist-CTe-...-<data>.xlsx`).
+3. **Sistema interno (ERP)** — arquivo `.csv` com NF-e *e* CT-e já lançados
+   (delimitado por `;`, com coluna `Chave` contendo a chave de 44 dígitos). O
+   roteamento é automático: chaves do modelo 55 vão para NF-e, modelo 57 vão
+   para CT-e.
 
 Mostra rapidamente:
 
-- Quais notas **ainda não foram lançadas** no sistema (foco do trabalho)
-- Quais já foram lançadas (bateram nas duas fontes)
-- Quais são pagas com **cartão** e não precisam ser lançadas (marcação manual)
-- Quais são **NF de Serviço** (NFS-e da prefeitura — não aparecem no FSist)
+- Quais documentos **ainda não foram lançados** no sistema (foco do trabalho)
+- Quais já foram lançados (bateram nas duas fontes)
+- Quais são pagos com **cartão** e não precisam ser lançados (marcação manual)
+- Quais NF-e são **NF de Serviço** (NFS-e da prefeitura — não aparecem no FSist)
 
 ## Como funciona
 
@@ -51,7 +55,7 @@ Isso cria `conciliador.db` com todas as notas conciliadas. Você também pode
 passar os caminhos explicitamente:
 
 ```bash
-python init_db.py --sefaz caminho/para/FSist.xlsx --sistema caminho/para/notas.csv
+python init_db.py --sefaz caminho/FSist-NFe.xlsx --cte caminho/FSist-CTe.xlsx --sistema caminho/notas.csv
 ```
 
 Se preferir começar com o banco vazio e importar tudo pela interface web depois:
@@ -84,10 +88,11 @@ python app.py
 
 - **Dashboard** com totais por status e por valor, filtrável por mês
 - **Lista de notas** com filtros (status, mês, busca por número/emitente/observação, CNPJ)
+- **Lista de CT-e** com mesmos filtros, mais transportadora e remetente
 - **Marcar como cartão** com 1 clique (persistente entre reimportações)
-- **Observação livre** por nota (também persistente)
-- **Coluna "Lançou"** exibindo qual usuário do ERP lançou a nota (se a coluna `Usuário` estiver presente no CSV)
-- **Reimportar** pela tela web, sem precisar parar o servidor
+- **Observação livre** por documento (também persistente)
+- **Coluna "Lançou"** exibindo qual usuário do ERP lançou (se a coluna `Usuário` estiver presente no CSV)
+- **Reimportar** pela tela web, sem precisar parar o servidor (1 a 3 arquivos opcionais)
 
 ## Formato esperado das planilhas
 
@@ -105,6 +110,23 @@ Cabeçalho na linha 1, com colunas (entre outras):
 | Emitente      | Razão social do fornecedor |
 
 Outras colunas presentes no FSist são ignoradas.
+
+### CT-e SEFAZ (.xlsx, opcional)
+
+Formato típico do FSist (`FSist-CTe-*.xlsx`). Colunas usadas:
+
+| Coluna             | Conteúdo                       |
+|--------------------|--------------------------------|
+| Chave              | Chave CT-e (44 dígitos)        |
+| Emissão            | Data de emissão                |
+| Número / Série     | Identificação do CT-e          |
+| Modal              | Rodoviário, Aéreo, etc.        |
+| Tipo Serviço       | Normal, Subcontratação, …      |
+| Valor              | Valor do frete                 |
+| Valor da Carga     | Valor das mercadorias transportadas |
+| Emitente CNPJ / Emitente / UF | Transportadora        |
+| Remetente CNPJ/CPF / Remetente | Quem despachou a carga |
+| NFe Chaves         | Chaves das NF-e transportadas (preservado pra cross-reference futura) |
 
 ### Sistema interno (.csv)
 

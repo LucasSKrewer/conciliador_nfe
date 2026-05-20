@@ -35,15 +35,56 @@ CREATE INDEX IF NOT EXISTS idx_nota_cnpj          ON nota_consolidada(cnpj_emite
 CREATE INDEX IF NOT EXISTS idx_nota_data          ON nota_consolidada(data_emissao);
 
 -- ------------------------------------------------------------
+-- CTE_CONSOLIDADA
+--   1 linha por CT-e (chave de 44 dígitos, modelo 57)
+--   Mesmo padrão da nota_consolidada: flags em_sefaz/em_sistema
+--   reescritas por cada importação, marcacao_cartao/observacao
+--   preservadas via UPSERT.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cte_consolidada (
+    chave              TEXT    PRIMARY KEY,            -- chave CT-e 44 dígitos
+    numero             TEXT,
+    serie              TEXT,
+    cnpj_emitente      TEXT,                           -- CNPJ da transportadora
+    emitente           TEXT,                           -- razão social da transportadora
+    emitente_uf        TEXT,
+    modal              TEXT,                           -- Rodoviário, Aéreo, etc.
+    tipo_servico       TEXT,                           -- Normal, Subcontratação, Redespacho...
+    valor              REAL,                           -- valor do frete
+    valor_carga        REAL,                           -- valor das mercadorias transportadas
+    cnpj_remetente     TEXT,                           -- quem despachou a carga
+    remetente          TEXT,
+    nfe_chaves         TEXT,                           -- chaves NFe transportadas, separadas por vírgula
+    data_emissao       TEXT,
+    em_sefaz           INTEGER NOT NULL DEFAULT 0,
+    em_sistema         INTEGER NOT NULL DEFAULT 0,
+    marcacao_cartao    INTEGER NOT NULL DEFAULT 0,
+    observacao         TEXT,
+    usuario_lancamento TEXT,
+    ultima_importacao  TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cte_status_sefaz   ON cte_consolidada(em_sefaz);
+CREATE INDEX IF NOT EXISTS idx_cte_status_sistema ON cte_consolidada(em_sistema);
+CREATE INDEX IF NOT EXISTS idx_cte_cartao         ON cte_consolidada(marcacao_cartao);
+CREATE INDEX IF NOT EXISTS idx_cte_cnpj_emit      ON cte_consolidada(cnpj_emitente);
+CREATE INDEX IF NOT EXISTS idx_cte_cnpj_rem       ON cte_consolidada(cnpj_remetente);
+CREATE INDEX IF NOT EXISTS idx_cte_data           ON cte_consolidada(data_emissao);
+
+-- ------------------------------------------------------------
 -- IMPORTACAO
 --   Log de cada execução de importação (auditoria simples).
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS importacao (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     arquivo_sefaz       TEXT,
+    arquivo_cte         TEXT,
     arquivo_sistema     TEXT,
     notas_sefaz         INTEGER NOT NULL DEFAULT 0,
+    ctes_sefaz          INTEGER NOT NULL DEFAULT 0,
     notas_sistema       INTEGER NOT NULL DEFAULT 0,
+    ctes_sistema        INTEGER NOT NULL DEFAULT 0,
     notas_total         INTEGER NOT NULL DEFAULT 0,
+    ctes_total          INTEGER NOT NULL DEFAULT 0,
     executado_em        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );

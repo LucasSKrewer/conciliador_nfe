@@ -200,6 +200,7 @@ NAV = """
   <a href="{{ url_for('dashboard') }}" {% if endpoint=='dashboard' %}class="ativo"{% endif %}>Dashboard</a>
   <a href="{{ url_for('lista_notas') }}" {% if endpoint=='lista_notas' and request.args.get('status','')=='' %}class="ativo"{% endif %}>Notas</a>
   <a href="{{ url_for('lista_notas', status='nao_lancado') }}" {% if endpoint=='lista_notas' and request.args.get('status')=='nao_lancado' %}class="ativo"{% endif %}>Não lançadas</a>
+  <a href="{{ url_for('lista_ctes') }}" {% if endpoint=='lista_ctes' %}class="ativo"{% endif %}>CT-e</a>
   <a href="{{ url_for('importar') }}" {% if endpoint=='importar' %}class="ativo"{% endif %}>Importar</a>
   <div class="nav-sep"></div>
   <div class="nav-user">Conciliador NF-e</div>
@@ -295,6 +296,20 @@ def dashboard():
         WHERE 1=1{where_extra}
     """, args, one=True)
 
+    totais_cte = query(f"""
+        SELECT
+            SUM(CASE WHEN {STATUS_SQL}='nao_lancado' THEN 1 ELSE 0 END) AS nao_lancado,
+            SUM(CASE WHEN {STATUS_SQL}='lancado'     THEN 1 ELSE 0 END) AS lancado,
+            SUM(CASE WHEN {STATUS_SQL}='cartao'      THEN 1 ELSE 0 END) AS cartao,
+            COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN {STATUS_SQL}='nao_lancado' THEN valor END),0) AS val_nao_lancado,
+            COALESCE(SUM(CASE WHEN {STATUS_SQL}='lancado'     THEN valor END),0) AS val_lancado,
+            COALESCE(SUM(CASE WHEN {STATUS_SQL}='cartao'      THEN valor END),0) AS val_cartao,
+            COALESCE(SUM(valor),0) AS val_total
+        FROM cte_consolidada
+        WHERE 1=1{where_extra}
+    """, args, one=True)
+
     ultima_imp = query("SELECT * FROM importacao ORDER BY id DESC LIMIT 1", one=True)
 
     nao_lancadas_recentes = query(f"""
@@ -320,13 +335,36 @@ def dashboard():
           <div class="stat-sub">{sub}</div>
         </a>"""
 
+    def stat_cte(label, valor, sub, classe, status_filtro=None):
+        if status_filtro:
+            params = {"status": status_filtro}
+            if mes: params["mes"] = mes
+            href = url_for("lista_ctes", **params)
+        else:
+            href = url_for("lista_ctes", **({"mes": mes} if mes else {}))
+        return f"""
+        <a class="stat {classe}" href="{href}">
+          <div class="stat-label">{label}</div>
+          <div class="stat-val">{valor}</div>
+          <div class="stat-sub">{sub}</div>
+        </a>"""
+
     stats_html = (
-        stat("Não lançadas", totais["nao_lancado"] or 0, fmt_valor(totais["val_nao_lancado"]), "vermelho", "nao_lancado") +
-        stat("Lançadas",      totais["lancado"]     or 0, fmt_valor(totais["val_lancado"]),     "verde",    "lancado") +
-        stat("Cartão",        totais["cartao"]      or 0, fmt_valor(totais["val_cartao"]),      "laranja",  "cartao") +
-        stat("NF de Serviço", totais["nf_servico"]  or 0, fmt_valor(totais["val_nf_servico"]),  "azul",     "nf_servico") +
-        stat("Total no banco", totais["total"]      or 0, "no período" if mes else "todas as notas", "cinza")
+        stat("Notas não lançadas", totais["nao_lancado"] or 0, fmt_valor(totais["val_nao_lancado"]), "vermelho", "nao_lancado") +
+        stat_cte("CT-e não lançados", totais_cte["nao_lancado"] or 0, fmt_valor(totais_cte["val_nao_lancado"]), "vermelho", "nao_lancado") +
+        stat("Notas lançadas", totais["lancado"]     or 0, fmt_valor(totais["val_lancado"]),     "verde",    "lancado") +
+        stat("Cartão",         totais["cartao"]      or 0, fmt_valor(totais["val_cartao"]),      "laranja",  "cartao") +
+        stat("NF de Serviço",  totais["nf_servico"]  or 0, fmt_valor(totais["val_nf_servico"]),  "azul",     "nf_servico") +
+        stat("Total no banco", totais["total"]       or 0, "no período" if mes else "todas as notas", "cinza")
     )
+
+    stats_cte_html = (
+        stat_cte("CT-e não lançados", totais_cte["nao_lancado"] or 0, fmt_valor(totais_cte["val_nao_lancado"]), "vermelho", "nao_lancado") +
+        stat_cte("CT-e lançados",     totais_cte["lancado"]     or 0, fmt_valor(totais_cte["val_lancado"]),     "verde",    "lancado") +
+        stat_cte("CT-e cartão",       totais_cte["cartao"]      or 0, fmt_valor(totais_cte["val_cartao"]),      "laranja",  "cartao") +
+        stat_cte("Total CT-e",        totais_cte["total"]       or 0, fmt_valor(totais_cte["val_total"]),       "cinza")
+    )
+    tem_cte = (totais_cte["total"] or 0) > 0
 
     rows = []
     for n in nao_lancadas_recentes:
@@ -397,6 +435,7 @@ def dashboard():
           <a class="btn btn-primary" href="{url_ver_todas}">Ver todas as não lançadas{periodo_titulo}</a>
         </div>
       </div>
+      {'<div style="margin-top:30px;padding-top:18px;border-top:1px solid #d6e2d6"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h2 style="font-size:16px;color:#1B5E20;font-weight:600">Conhecimentos de Transporte (CT-e)' + periodo_titulo + '</h2><a class="btn btn-secondary btn-sm" href="' + url_for('lista_ctes', **({'mes':mes} if mes else {})) + '">Ver todos os CT-e</a></div><div class="stats">' + stats_cte_html + '</div></div>' if tem_cte else ''}
     </div>"""
     return render_pagina("Dashboard", corpo)
 
@@ -633,58 +672,298 @@ def salvar_observacao(chave):
     return jsonify(ok=True)
 
 
+# ── CT-e ────────────────────────────────────────────────────────────────────
+
+@app.route("/ctes")
+def lista_ctes():
+    status = request.args.get("status", "").strip()
+    busca  = request.args.get("q", "").strip()
+    mes    = request.args.get("mes", "").strip()
+    pag    = max(1, int(request.args.get("pag", "1") or "1"))
+
+    meses_cte = [r["ym"] for r in query("""
+        SELECT DISTINCT substr(data_emissao,1,7) AS ym
+        FROM cte_consolidada
+        WHERE data_emissao IS NOT NULL AND length(data_emissao) >= 7
+        ORDER BY ym DESC
+    """)]
+    if mes and mes not in meses_cte:
+        mes = ""
+
+    where = ["1=1"]
+    args  = []
+    if status in STATUS_LABEL:
+        where.append(f"{STATUS_SQL} = ?")
+        args.append(status)
+    if mes:
+        where.append("substr(data_emissao,1,7) = ?")
+        args.append(mes)
+    if busca:
+        where.append("(chave LIKE ? OR numero LIKE ? OR emitente LIKE ? OR remetente LIKE ? OR observacao LIKE ?)")
+        args += [f"%{busca}%"] * 5
+    ws = " AND ".join(where)
+
+    total = query(f"SELECT COUNT(*) AS n FROM cte_consolidada WHERE {ws}", args, one=True)["n"]
+    total_paginas = max(1, (total + POR_PAGINA - 1) // POR_PAGINA)
+    pag = min(pag, total_paginas)
+    soma_valor = query(f"SELECT COALESCE(SUM(valor),0) AS s FROM cte_consolidada WHERE {ws}", args, one=True)["s"]
+    soma_carga = query(f"SELECT COALESCE(SUM(valor_carga),0) AS s FROM cte_consolidada WHERE {ws}", args, one=True)["s"]
+
+    rows = query(f"""
+        SELECT chave, numero, serie, cnpj_emitente, emitente, emitente_uf,
+               modal, tipo_servico, valor, valor_carga,
+               cnpj_remetente, remetente, data_emissao,
+               em_sefaz, em_sistema, marcacao_cartao, observacao, usuario_lancamento,
+               {STATUS_SQL} AS status
+        FROM cte_consolidada
+        WHERE {ws}
+        ORDER BY data_emissao DESC, numero DESC
+        LIMIT ? OFFSET ?
+    """, args + [POR_PAGINA, (pag - 1) * POR_PAGINA])
+
+    def opt(val, label, sel):
+        s = ' selected' if val == sel else ''
+        return f'<option value="{val}"{s}>{label}</option>'
+    status_opts = (opt("", "(Todos)", status)
+                 + opt("nao_lancado", "Não lançado", status)
+                 + opt("lancado", "Lançado", status)
+                 + opt("cartao", "Cartão", status)
+                 + opt("nf_servico", "NF de Serviço", status))
+    mes_opts = '<option value="">(Todos os meses)</option>' + "".join(
+        f'<option value="{m}"{" selected" if m==mes else ""}>{fmt_mes(m)}</option>'
+        for m in meses_cte
+    )
+
+    linhas = []
+    for c in rows:
+        label, cls_badge = STATUS_LABEL[c["status"]]
+        cartao_check = "checked" if c["marcacao_cartao"] else ""
+        obs = (c["observacao"] or "").replace('"', '&quot;')
+        flags = []
+        if c["em_sefaz"]:   flags.append('<span class="badge badge-verde" title="Na planilha CT-e da SEFAZ">SEFAZ</span>')
+        if c["em_sistema"]: flags.append('<span class="badge badge-verde" title="Lançado no sistema">Sistema</span>')
+        flags_html = " ".join(flags) or '<span class="badge badge-cinza">—</span>'
+        usuario = c["usuario_lancamento"] or ""
+        usuario_html = f'<span style="font-size:12px;color:#1B5E20">{usuario}</span>' if usuario else '<span style="color:#bbb">—</span>'
+        rem = c["remetente"] or ""
+        rem_html = f'<span style="font-size:12px">{rem}</span>' if rem else '<span style="color:#bbb">—</span>'
+        modal_html = f'<span class="badge badge-cinza" style="font-size:10px">{c["modal"]}</span>' if c["modal"] else ""
+        linhas.append(f"""
+        <tr data-chave="{c['chave']}">
+          <td>{fmt_data(c['data_emissao'])}</td>
+          <td class="mono">{c['numero'] or ''}{('/'+c['serie']) if c['serie'] else ''}</td>
+          <td>
+            {c['emitente'] or ''}<br>
+            <span class="mono" style="color:#888">{fmt_cnpj(c['cnpj_emitente'])}</span> {modal_html}
+          </td>
+          <td>{rem_html}</td>
+          <td class="num">{fmt_valor(c['valor'])}<br><span style="font-size:11px;color:#888">carga {fmt_valor(c['valor_carga'])}</span></td>
+          <td>{flags_html}</td>
+          <td><span class="badge {cls_badge}">{label}</span></td>
+          <td>{usuario_html}</td>
+          <td class="acao-cell">
+            <label style="font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px">
+              <input type="checkbox" class="cartao-chk" {cartao_check}> Cartão
+            </label>
+          </td>
+          <td><input class="obs-input" data-chave="{c['chave']}" value="{obs}" placeholder="observação"></td>
+          <td class="chave" title="{c['chave']}">{c['chave'][:8]}…{c['chave'][-4:]}</td>
+        </tr>""")
+    linhas_html = "".join(linhas) or '<tr><td colspan="11" class="empty">Nenhum CT-e com esses filtros.</td></tr>'
+
+    def pag_link(p, txt=None, ativo=False):
+        if ativo:
+            return f'<span class="ativo">{txt or p}</span>'
+        argsd = dict(request.args)
+        argsd["pag"] = p
+        return f'<a href="{url_for("lista_ctes", **argsd)}">{txt or p}</a>'
+    pags = []
+    if pag > 1:
+        pags.append(pag_link(pag - 1, "‹ anterior"))
+    janela = range(max(1, pag - 3), min(total_paginas, pag + 3) + 1)
+    for p in janela:
+        pags.append(pag_link(p, ativo=(p == pag)))
+    if pag < total_paginas:
+        pags.append(pag_link(pag + 1, "próxima ›"))
+    pag_html = "".join(pags)
+
+    js = """
+    <script>
+    document.querySelectorAll('.cartao-chk').forEach(chk => {
+      chk.addEventListener('change', async (ev) => {
+        const tr = ev.target.closest('tr');
+        const chave = tr.dataset.chave;
+        const marcado = ev.target.checked ? 1 : 0;
+        const r = await fetch('/ctes/' + chave + '/cartao', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({cartao: marcado})
+        });
+        if (!r.ok) { alert('Falha ao salvar marcação.'); ev.target.checked = !ev.target.checked; return; }
+        window.location.reload();
+      });
+    });
+    document.querySelectorAll('.obs-input').forEach(inp => {
+      let timer = null;
+      inp.addEventListener('input', (ev) => {
+        clearTimeout(timer);
+        const chave = ev.target.dataset.chave;
+        const val = ev.target.value;
+        timer = setTimeout(async () => {
+          const r = await fetch('/ctes/' + chave + '/observacao', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({observacao: val})
+          });
+          if (r.ok) { ev.target.style.borderColor = '#2E7D32'; setTimeout(()=>{ev.target.style.borderColor='';}, 600); }
+        }, 600);
+      });
+    });
+    </script>"""
+
+    titulo_status = STATUS_LABEL.get(status, ("Todos os CT-e", ""))[0] if status else "Todos os CT-e"
+    titulo_mes = f" — {fmt_mes(mes)}" if mes else ""
+
+    corpo = f"""
+    <div class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">{titulo_status}{titulo_mes}</h1>
+          <div class="page-sub">{total} CT-e — frete total {fmt_valor(soma_valor)} · carga {fmt_valor(soma_carga)}</div>
+        </div>
+        <div>
+          <a class="btn btn-secondary" href="{url_for('dashboard')}">← Dashboard</a>
+        </div>
+      </div>
+
+      <form class="filtros" method="get">
+        <div class="form-group" style="min-width:160px">
+          <label>Status</label>
+          <select name="status">{status_opts}</select>
+        </div>
+        <div class="form-group" style="min-width:180px">
+          <label>Mês de emissão</label>
+          <select name="mes">{mes_opts}</select>
+        </div>
+        <div class="form-group" style="flex:1;min-width:220px">
+          <label>Busca (chave, número, transportadora, remetente ou observação)</label>
+          <input name="q" value="{busca}" placeholder="Ex: 4317, transportadora ou remetente">
+        </div>
+        <button class="btn btn-primary" type="submit">Filtrar</button>
+        <a class="btn btn-cinza" href="{url_for('lista_ctes')}">Limpar</a>
+      </form>
+
+      <div class="card" style="padding:0">
+        <div class="tbl-wrap">
+          <table>
+            <tr>
+              <th>Emissão</th>
+              <th>Nº/Série</th>
+              <th>Transportadora</th>
+              <th>Remetente</th>
+              <th class="right">Frete</th>
+              <th>Fontes</th>
+              <th>Status</th>
+              <th>Lançou</th>
+              <th>Cartão?</th>
+              <th>Observação</th>
+              <th>Chave</th>
+            </tr>
+            {linhas_html}
+          </table>
+        </div>
+      </div>
+      <div class="paginacao">{pag_html}</div>
+    </div>
+    {js}"""
+    return render_pagina(titulo_status, corpo)
+
+
+@app.route("/ctes/<chave>/cartao", methods=["POST"])
+def marcar_cartao_cte(chave):
+    data = request.get_json(silent=True) or {}
+    marcado = 1 if data.get("cartao") else 0
+    db = get_db()
+    cur = db.execute("UPDATE cte_consolidada SET marcacao_cartao=? WHERE chave=?", (marcado, chave))
+    if cur.rowcount == 0:
+        return jsonify(ok=False, erro="CT-e não encontrado"), 404
+    db.commit()
+    return jsonify(ok=True, cartao=bool(marcado))
+
+
+@app.route("/ctes/<chave>/observacao", methods=["POST"])
+def salvar_observacao_cte(chave):
+    data = request.get_json(silent=True) or {}
+    obs = (data.get("observacao") or "").strip()
+    db = get_db()
+    cur = db.execute("UPDATE cte_consolidada SET observacao=? WHERE chave=?",
+                     (obs if obs else None, chave))
+    if cur.rowcount == 0:
+        return jsonify(ok=False, erro="CT-e não encontrado"), 404
+    db.commit()
+    return jsonify(ok=True)
+
+
 @app.route("/importar", methods=["GET", "POST"])
 def importar():
     if request.method == "POST":
         arq_sefaz = request.files.get("sefaz")
+        arq_cte   = request.files.get("cte")
         arq_sis   = request.files.get("sistema")
-        if not arq_sefaz or not arq_sefaz.filename:
-            flash("Selecione o arquivo .xlsx da SEFAZ.", "erro")
-            return redirect(url_for("importar"))
-        if not arq_sis or not arq_sis.filename:
-            flash("Selecione o arquivo .csv do sistema.", "erro")
+
+        tem_alguma = any(a and a.filename for a in (arq_sefaz, arq_cte, arq_sis))
+        if not tem_alguma:
+            flash("Selecione pelo menos um arquivo (NFe SEFAZ, CT-e SEFAZ ou CSV do sistema).", "erro")
             return redirect(url_for("importar"))
 
-        # salva temporários
         tmp_dir = tempfile.mkdtemp(prefix="conciliador_")
-        path_sefaz = os.path.join(tmp_dir, os.path.basename(arq_sefaz.filename))
-        path_sis   = os.path.join(tmp_dir, os.path.basename(arq_sis.filename))
-        arq_sefaz.save(path_sefaz)
-        arq_sis.save(path_sis)
+        path_sefaz = path_cte = path_sis = None
+        if arq_sefaz and arq_sefaz.filename:
+            path_sefaz = os.path.join(tmp_dir, os.path.basename(arq_sefaz.filename))
+            arq_sefaz.save(path_sefaz)
+        if arq_cte and arq_cte.filename:
+            path_cte = os.path.join(tmp_dir, os.path.basename(arq_cte.filename))
+            arq_cte.save(path_cte)
+        if arq_sis and arq_sis.filename:
+            path_sis = os.path.join(tmp_dir, os.path.basename(arq_sis.filename))
+            arq_sis.save(path_sis)
 
-        # fecha conexão do request antes de o importador abrir a sua
         fechar_db()
 
         try:
-            resumo = importador.executar_importacao(path_sefaz, path_sis, db_path=DB_PATH)
+            resumo = importador.executar_importacao(path_sefaz, path_sis,
+                                                    db_path=DB_PATH, caminho_cte=path_cte)
         except Exception as e:
             log.error(f"Erro na importação: {e}\n{traceback.format_exc()}")
             flash(f"Erro na importação: {e}", "erro")
             return redirect(url_for("importar"))
 
         flash(
-            f"Importação ok — SEFAZ: {resumo['totais']['em_sefaz']} notas, "
-            f"Sistema: {resumo['totais']['em_sistema']}, "
-            f"total no banco: {resumo['totais']['total']}.",
+            f"Importação ok — NFe: {resumo['totais']['nfe']['total']} no banco "
+            f"({resumo['totais']['nfe']['em_sefaz']} SEFAZ, {resumo['totais']['nfe']['em_sistema']} Sistema); "
+            f"CTe: {resumo['totais']['cte']['total']} no banco "
+            f"({resumo['totais']['cte']['em_sefaz']} SEFAZ, {resumo['totais']['cte']['em_sistema']} Sistema).",
             "ok"
         )
         return redirect(url_for("dashboard"))
 
-    # GET: tela
     historico = query("SELECT * FROM importacao ORDER BY id DESC LIMIT 5")
     hist_rows = ""
     for h in historico:
+        cte_arq = (h["arquivo_cte"] if "arquivo_cte" in h.keys() else None) or ""
+        ctes_sefaz = h["ctes_sefaz"] if "ctes_sefaz" in h.keys() else 0
+        ctes_sis = h["ctes_sistema"] if "ctes_sistema" in h.keys() else 0
         hist_rows += f"""
         <tr>
           <td>{h['executado_em']}</td>
           <td class="mono" style="font-size:11px">{os.path.basename(h['arquivo_sefaz'] or '')}</td>
+          <td class="mono" style="font-size:11px">{os.path.basename(cte_arq)}</td>
           <td class="mono" style="font-size:11px">{os.path.basename(h['arquivo_sistema'] or '')}</td>
           <td class="num">{h['notas_sefaz']}</td>
-          <td class="num">{h['notas_sistema']}</td>
+          <td class="num">{ctes_sefaz}</td>
+          <td class="num">{h['notas_sistema']}/{ctes_sis}</td>
           <td class="num">{h['notas_total']}</td>
         </tr>"""
     if not hist_rows:
-        hist_rows = '<tr><td colspan="6" class="empty">Nenhuma importação registrada ainda.</td></tr>'
+        hist_rows = '<tr><td colspan="8" class="empty">Nenhuma importação registrada ainda.</td></tr>'
 
     corpo = f"""
     <div class="page">
@@ -693,19 +972,25 @@ def importar():
         <a class="btn btn-secondary" href="{url_for('dashboard')}">← Dashboard</a>
       </div>
       <div class="card">
-        <div class="card-title">Subir as 2 planilhas</div>
+        <div class="card-title">Subir as planilhas</div>
         <p style="margin-bottom:16px;color:#555;font-size:13px">
-          Selecione o <b>.xlsx</b> da SEFAZ (FSist) e o <b>.csv</b> do sistema interno (Notas de Entrada).
-          As marcações manuais de cartão e observações são <b>preservadas</b> entre importações.
+          Todos os arquivos são <b>opcionais</b> — escolha apenas os que tiver agora.
+          O CSV do sistema contém NFe <i>e</i> CT-e misturados; o roteamento é
+          automático pela chave (modelo 55=NFe, 57=CT-e). Marcações manuais de
+          cartão e observações são <b>preservadas</b> entre importações.
         </p>
         <form method="post" enctype="multipart/form-data">
           <div class="form-group" style="margin-bottom:14px">
-            <label>Planilha SEFAZ (.xlsx)</label>
-            <input type="file" name="sefaz" accept=".xlsx" required>
+            <label>Planilha NFe SEFAZ (.xlsx — FSist-NFe-Recebidas-...)</label>
+            <input type="file" name="sefaz" accept=".xlsx">
           </div>
           <div class="form-group" style="margin-bottom:14px">
-            <label>Planilha do Sistema (.csv)</label>
-            <input type="file" name="sistema" accept=".csv" required>
+            <label>Planilha CT-e SEFAZ (.xlsx — FSist-CTe-...)</label>
+            <input type="file" name="cte" accept=".xlsx">
+          </div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label>CSV do sistema interno / ERP (.csv)</label>
+            <input type="file" name="sistema" accept=".csv">
           </div>
           <button class="btn btn-primary" type="submit">Importar agora</button>
         </form>
@@ -714,8 +999,16 @@ def importar():
         <div class="card-title">Últimas importações</div>
         <div class="tbl-wrap">
           <table>
-            <tr><th>Data/hora</th><th>Arquivo SEFAZ</th><th>Arquivo Sistema</th>
-                <th class="right">SEFAZ</th><th class="right">Sistema</th><th class="right">Total</th></tr>
+            <tr>
+              <th>Data/hora</th>
+              <th>Arq. NFe</th>
+              <th>Arq. CT-e</th>
+              <th>Arq. Sistema</th>
+              <th class="right">NFe SEFAZ</th>
+              <th class="right">CTe SEFAZ</th>
+              <th class="right">Sistema (NFe/CTe)</th>
+              <th class="right">Total NFe</th>
+            </tr>
             {hist_rows}
           </table>
         </div>

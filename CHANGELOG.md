@@ -5,6 +5,32 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.4.0] — 2026-05-19
+
+### Adicionado
+- **Suporte a CT-e** (Conhecimento de Transporte Eletrônico):
+  - Nova tabela `cte_consolidada` com campos específicos (modal,
+    transportadora, remetente, valor da carga, chaves NF-e transportadas).
+  - Novo importador `importar_cte()` lê a planilha FSist-CTe.
+  - O importador do CSV do ERP agora **roteia automaticamente** pela
+    chave: modelo 55 → `nota_consolidada`, modelo 57 → `cte_consolidada`.
+  - Nova rota `/ctes` com lista, filtros (status, mês, busca em
+    chave/número/transportadora/remetente/observação) e ações de
+    marcação cartão / observação.
+  - Dashboard mostra um card **"CT-e não lançados"** no topo, ao lado
+    do card de notas; e uma seção dedicada de CT-e abaixo com 4 cards.
+  - Item "CT-e" no menu superior.
+- Tela `/importar` aceita até 3 arquivos opcionais (NFe SEFAZ, CT-e
+  SEFAZ, CSV do ERP). Selecione apenas os que tiver agora.
+- `init_db.py --cte <caminho>` para importação via CLI.
+- Migration idempotente para adicionar `cte_consolidada` e as novas
+  colunas em `importacao` em bancos criados antes desta versão.
+
+### Mudado
+- Card **"Não lançadas"** do dashboard renomeado para **"Notas não
+  lançadas"** para diferenciar do novo card **"CT-e não lançados"**.
+- Card "Lançadas" renomeado para "Notas lançadas" pela mesma razão.
+
 ## [0.3.0] — 2026-05-19
 
 ### Mudado
