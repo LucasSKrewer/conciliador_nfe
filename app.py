@@ -149,6 +149,13 @@ def fmt_valor(v):
         return ""
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+def pagina_atual():
+    """Lê o parâmetro ?pag= de forma segura — qualquer lixo vira página 1."""
+    try:
+        return max(1, int(request.args.get("pag", "1") or "1"))
+    except (ValueError, TypeError):
+        return 1
+
 # ── layout ───────────────────────────────────────────────────────────────────
 
 CSS = """
@@ -516,7 +523,7 @@ def lista_notas():
     busca    = request.args.get("q", "").strip()
     cnpj     = request.args.get("cnpj", "").strip()
     mes      = request.args.get("mes", "").strip()
-    pag      = max(1, int(request.args.get("pag", "1") or "1"))
+    pag      = pagina_atual()
 
     meses = meses_disponiveis()
     if mes and mes not in meses:
@@ -752,7 +759,7 @@ def lista_ctes():
     status = request.args.get("status", "").strip()
     busca  = request.args.get("q", "").strip()
     mes    = request.args.get("mes", "").strip()
-    pag    = max(1, int(request.args.get("pag", "1") or "1"))
+    pag    = pagina_atual()
 
     meses_cte = [r["ym"] for r in query("""
         SELECT DISTINCT substr(data_emissao,1,7) AS ym
@@ -966,7 +973,7 @@ def lista_nfse():
     status = request.args.get("status", "").strip()
     busca  = request.args.get("q", "").strip()
     mes    = request.args.get("mes", "").strip()
-    pag    = max(1, int(request.args.get("pag", "1") or "1"))
+    pag    = pagina_atual()
 
     meses_nfse = [r["ym"] for r in query("""
         SELECT DISTINCT substr(data_emissao,1,7) AS ym

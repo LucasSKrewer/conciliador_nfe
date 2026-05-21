@@ -172,6 +172,14 @@ def _aplicar_migrations(conn):
         if col not in cols_imp:
             conn.execute(f"ALTER TABLE importacao ADD COLUMN {col} {decl}")
 
+    # Limpeza: remove CT-es (chave 44 díg, modelo 57) que ficaram em
+    # nota_consolidada — resíduo de importações feitas antes do roteamento
+    # por modelo existir. CT-e pertence só à cte_consolidada. Idempotente.
+    conn.execute("""
+        DELETE FROM nota_consolidada
+        WHERE length(chave) = 44 AND substr(chave, 21, 2) = '57'
+    """)
+
 def consolidar_nfs_com_nfes(conn):
     """Para cada NFS sintética em nota_consolidada (chave LIKE 'NFS-%'),
     tenta achar uma NFe (chave de 44 dígitos) com:
