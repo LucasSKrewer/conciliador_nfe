@@ -1,163 +1,174 @@
 # Conciliador NF-e
 
-Aplicação Flask local que **concilia documentos fiscais eletrônicos** (NF-e,
-CT-e e NFS-e) entre o que foi recebido na SEFAZ/prefeitura e o que foi
-lançado no sistema interno (ERP):
+Local Flask application that **reconciles Brazilian electronic tax documents** (NF-e,
+CT-e and NFS-e) between what the tax authority recorded and what was actually entered
+into the company's ERP.
 
-1. **NF-e SEFAZ** — planilha `.xlsx` com as NF-e recebidas pelo CNPJ da empresa
-   (formato típico do FSist: `FSist-NFe-Recebidas-<CNPJ>-<data>.xlsx`).
-2. **CT-e SEFAZ** — planilha `.xlsx` com os Conhecimentos de Transporte
-   recebidos (formato `FSist-CTe-...-<data>.xlsx`).
-3. **NFS-e Prefeitura** — planilha `.xlsx` do portal NFS-e nacional/municipal
-   (formato `NFSe_Recebidas_<período>.xlsx`). Chave única DANFSe de 50 dígitos
-   extraída da URL.
-4. **Sistema interno (ERP)** — arquivo `.csv` com NF-e *e* CT-e *e* NF-S já
-   lançados (delimitado por `;`, com coluna `Chave` contendo a chave de 44
-   dígitos quando aplicável). O roteamento é automático:
-   - Modelo 55 → NF-e (`nota_consolidada`)
-   - Modelo 57 → CT-e (`cte_consolidada`)
-   - Sem chave → tenta casar com NFe ou NFS-e existentes; senão cria NFS sintética
+> **Context for non-Brazilian readers:** every commercial invoice in Brazil is issued
+> electronically and registered with the state tax authority (SEFAZ), each carrying a
+> 44-digit access key. Companies must enter those same documents into their own ERP.
+> The two sides drift apart constantly, and finding the gap by hand is a monthly chore.
+> This tool does the matching.
 
-Mostra rapidamente:
+Inputs:
 
-- Quais documentos **ainda não foram lançados** no sistema (foco do trabalho)
-- Quais já foram lançados (bateram nas duas fontes)
-- Quais são pagos com **cartão** e não precisam ser lançados (marcação manual)
-- Quais NF-e são **NF de Serviço** (NFS-e da prefeitura — não aparecem no FSist)
+1. **NF-e from SEFAZ** — `.xlsx` listing the invoices issued against the company's tax ID
+   (typical FSist export: `FSist-NFe-Recebidas-<CNPJ>-<date>.xlsx`).
+2. **CT-e from SEFAZ** — `.xlsx` listing incoming freight documents (`FSist-CTe-...-<date>.xlsx`).
+3. **NFS-e from the city** — `.xlsx` from the national/municipal service-invoice portal
+   (`NFSe_Recebidas_<period>.xlsx`). The unique 50-digit DANFSe key is extracted from the URL.
+4. **Internal system (ERP)** — `.csv` with NF-e *and* CT-e *and* NF-S already entered
+   (`;`-delimited, with a `Chave` column holding the 44-digit key where applicable).
+   Routing is automatic:
+   - Model 55 → NF-e (`nota_consolidada`)
+   - Model 57 → CT-e (`cte_consolidada`)
+   - No key → tries to match an existing NFe or NFS-e; otherwise creates a synthetic NFS
 
-## Como funciona
+It shows at a glance:
 
-O matching é feito pela **chave NF-e de 44 dígitos**, que está presente nas
-duas planilhas. A reimportação é **idempotente**: pode ser rodada quantas
-vezes quiser sem perder as marcações manuais de cartão e observações.
+- Which documents have **not been entered** into the ERP yet (the point of the tool)
+- Which are already entered (present in both sources)
+- Which were paid by **card** and don't need entering (marked manually)
+- Which are **service invoices** (municipal NFS-e — these never appear in FSist)
 
-## Requisitos
+## How it works
 
-- Python 3.9 ou superior
-- Windows, Linux ou macOS
+Matching is done on the **44-digit NF-e key**, which is present in both spreadsheets.
+Re-importing is **idempotent**: run it as many times as you like without losing manual
+card markings or notes.
 
-## Instalação
+## Requirements
+
+- Python 3.9 or newer
+- Windows, Linux or macOS
+
+## Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Uso
+## Usage
 
-### Primeira vez
+### First run
 
-Coloque os dois arquivos na pasta do projeto:
+Put both files in the project folder:
 
-- O `.xlsx` da SEFAZ (ex: `FSist-NFe-Recebidas-*.xlsx`)
-- O `.csv` do sistema interno (ex: `Notas de Entrada.csv`)
+- The SEFAZ `.xlsx` (e.g. `FSist-NFe-Recebidas-*.xlsx`)
+- The internal system `.csv` (e.g. `Notas de Entrada.csv`)
 
-E rode:
+Then run:
 
 ```bash
 python init_db.py
 ```
 
-Isso cria `conciliador.db` com todas as notas conciliadas. Você também pode
-passar os caminhos explicitamente:
+That creates `conciliador.db` with every reconciled document. You can also pass paths
+explicitly:
 
 ```bash
-python init_db.py --sefaz caminho/FSist-NFe.xlsx --cte caminho/FSist-CTe.xlsx --sistema caminho/notas.csv
+python init_db.py --sefaz path/FSist-NFe.xlsx --cte path/FSist-CTe.xlsx --sistema path/notas.csv
 ```
 
-Se preferir começar com o banco vazio e importar tudo pela interface web depois:
+To start with an empty database and import everything through the web UI instead:
 
 ```bash
 python init_db.py --vazio
 ```
 
-### Subir o servidor
+### Starting the server
 
 ```bash
 python app.py
 ```
 
-(ou duplo-clique em `iniciar.bat` no Windows). Acesse no navegador:
+(or double-click `iniciar.bat` on Windows). Then open:
 
-- **Neste computador:** http://localhost:5001
-- **Outros PCs da rede:** http://[IP-DA-MÁQUINA]:5001
+- **On this machine:** http://localhost:5001
+- **Other PCs on the network:** http://[MACHINE-IP]:5001
 
-## Status de cada nota
+## Document statuses
 
-| Status        | Quando aparece                                                              |
-|---------------|-----------------------------------------------------------------------------|
-| Não lançado   | A nota está na SEFAZ mas **não** foi lançada no sistema                     |
-| Lançado       | A nota está nas duas planilhas (SEFAZ + Sistema)                            |
-| Cartão        | Você marcou manualmente — pago com cartão, não precisa lançar               |
-| NF de Serviço | Está no Sistema mas **não** na SEFAZ — NFS-e da prefeitura (FSist não lista) |
+Status labels are shown in the UI in Portuguese:
 
-## Funcionalidades
+| Status          | When it appears                                                          |
+|-----------------|--------------------------------------------------------------------------|
+| `Não lançado`   | Registered at SEFAZ but **not** entered in the ERP                        |
+| `Lançado`       | Present in both sources (SEFAZ + ERP)                                     |
+| `Cartão`        | Marked manually — paid by card, no entry needed                           |
+| `NF de Serviço` | In the ERP but **not** at SEFAZ — municipal NFS-e, which FSist never lists |
 
-- **Dashboard** com totais por status e por valor, filtrável por mês
-- **Lista de notas** com filtros (status, mês, busca por chave/número/emitente/observação/valor, CNPJ)
-- **Lista de CT-e** com mesmos filtros, mais transportadora e remetente
-- **Marcar como cartão** com 1 clique (persistente entre reimportações) — só NF-e, CT-e não tem
-- **Observação livre** por documento (também persistente)
-- **Coluna "Lançou"** exibindo qual usuário do ERP lançou (se a coluna `Usuário` estiver presente no CSV)
-- **NF-S sem chave eletrônica** (NFS-e da prefeitura) entram via chave sintética `NFS-<cód>-<nº>` e aparecem como "NF de Serviço"
-- **Fornecedores ocultos** (`/ocultos`): cadastre CNPJs ou padrões de razão social pra esconder notas/CT-e desses fornecedores de todas as visões (útil pra serviços recorrentes, intra-grupo, etc.)
-- **Busca por valor** aceita formato BR (`1.796,52`) e PT (`1796.52`), além de parcial (`1796`)
-- **Notas canceladas** (status "Cancelada" / "NFS-e Cancelada") são puladas
-  automaticamente nos 3 importadores e removidas do banco se já existiam
-- **Reimportar** pela tela web (1 a 4 arquivos opcionais) — sem parar o servidor
+## Features
 
-## Formato esperado das planilhas
+- **Dashboard** with totals by status and by amount, filterable by month
+- **Document list** with filters (status, month, search by key/number/issuer/note/amount, tax ID)
+- **CT-e list** with the same filters, plus carrier and shipper
+- **Mark as card** in one click (survives re-imports) — NF-e only; CT-e has no card flag
+- **Free-text note** per document (also persistent)
+- **"Lançou" column** showing which ERP user entered the document (when the CSV has a `Usuário` column)
+- **NF-S without an electronic key** (municipal NFS-e) enter via a synthetic key
+  `NFS-<code>-<number>` and show up as "NF de Serviço"
+- **Hidden suppliers** (`/ocultos`): register tax IDs or company-name patterns to hide their
+  documents from every view — useful for recurring services, intra-group billing, etc.
+- **Amount search** accepts Brazilian (`1.796,52`) and international (`1796.52`) formats,
+  as well as partial matches (`1796`)
+- **Cancelled documents** (status "Cancelada" / "NFS-e Cancelada") are skipped automatically
+  by all three importers and removed from the database if already present
+- **Re-import** from the web UI (1 to 4 optional files) — no server restart
+
+## Expected spreadsheet formats
+
+Column names below are the literal headers in the source files and stay in Portuguese.
 
 ### SEFAZ (.xlsx)
 
-Cabeçalho na linha 1, com colunas (entre outras):
+Header on row 1, with (among others) these columns:
 
-| Coluna  | Conteúdo                |
-|---------|-------------------------|
-| Emissão | Data de emissão         |
-| Chave   | Chave NF-e (44 dígitos) |
-| Número  | Número da nota          |
-| Valor   | Valor total             |
-| Emitente CNPJ | CNPJ do fornecedor |
-| Emitente      | Razão social do fornecedor |
+| Column        | Content                    |
+|---------------|----------------------------|
+| Emissão       | Issue date                 |
+| Chave         | NF-e key (44 digits)       |
+| Número        | Document number            |
+| Valor         | Total amount               |
+| Emitente CNPJ | Supplier tax ID            |
+| Emitente      | Supplier legal name        |
 
-Outras colunas presentes no FSist são ignoradas.
+Any other FSist columns are ignored.
 
-### CT-e SEFAZ (.xlsx, opcional)
+### CT-e from SEFAZ (.xlsx, optional)
 
-Formato típico do FSist (`FSist-CTe-*.xlsx`). Colunas usadas:
+Typical FSist format (`FSist-CTe-*.xlsx`). Columns used:
 
-| Coluna             | Conteúdo                       |
-|--------------------|--------------------------------|
-| Chave              | Chave CT-e (44 dígitos)        |
-| Emissão            | Data de emissão                |
-| Número / Série     | Identificação do CT-e          |
-| Modal              | Rodoviário, Aéreo, etc.        |
-| Tipo Serviço       | Normal, Subcontratação, …      |
-| Valor              | Valor do frete                 |
-| Valor da Carga     | Valor das mercadorias transportadas |
-| Emitente CNPJ / Emitente / UF | Transportadora        |
-| Remetente CNPJ/CPF / Remetente | Quem despachou a carga |
-| NFe Chaves         | Chaves das NF-e transportadas (preservado pra cross-reference futura) |
+| Column                         | Content                                         |
+|--------------------------------|-------------------------------------------------|
+| Chave                          | CT-e key (44 digits)                            |
+| Emissão                        | Issue date                                      |
+| Número / Série                 | CT-e identification                             |
+| Modal                          | Road, air, etc.                                 |
+| Tipo Serviço                   | Normal, subcontracted, …                        |
+| Valor                          | Freight amount                                  |
+| Valor da Carga                 | Value of the goods being transported            |
+| Emitente CNPJ / Emitente / UF  | Carrier                                         |
+| Remetente CNPJ/CPF / Remetente | Who shipped the load                            |
+| NFe Chaves                     | Keys of the invoices carried (kept for future cross-referencing) |
 
-### Sistema interno (.csv)
+### Internal system (.csv)
 
-Delimitador `;`, encoding `cp1252` (Windows-1252) ou UTF-8, com pelo menos
-estas colunas:
+`;`-delimited, encoded as `cp1252` (Windows-1252) or UTF-8, with at least these columns:
 
-| Coluna         | Conteúdo                |
-|----------------|-------------------------|
-| Chave          | Chave NF-e (44 dígitos) |
-| Número Nota    | Número da nota          |
-| Data Emissão   | Data de emissão         |
-| Valor Contábil | Valor total (ou `Valor Faturado` / `Valor Produtos` como fallback) |
-| Razão Social   | Razão social do fornecedor |
-| Usuário        | Quem lançou a nota no ERP (opcional — aparece na coluna "Lançou" na tela) |
+| Column         | Content                                                              |
+|----------------|----------------------------------------------------------------------|
+| Chave          | NF-e key (44 digits)                                                 |
+| Número Nota    | Document number                                                      |
+| Data Emissão   | Issue date                                                           |
+| Valor Contábil | Total amount (falls back to `Valor Faturado` / `Valor Produtos`)      |
+| Razão Social   | Supplier legal name                                                  |
+| Usuário        | Who entered the document in the ERP (optional — shown in the "Lançou" column) |
 
-Valores em formato brasileiro (`1.234,56`) são aceitos.
+Amounts in Brazilian format (`1.234,56`) are accepted.
 
 ## Backup
 
-Todo o estado fica no arquivo `conciliador.db`. Copie esse arquivo para
-backup completo (inclui suas marcações de cartão e observações). As
-planilhas em si não precisam ser guardadas — você pode reimportá-las a
-qualquer momento.
+All state lives in `conciliador.db`. Copy that single file for a full backup (it includes
+your card markings and notes). The spreadsheets themselves don't need to be kept — you can
+re-import them at any time.
